@@ -32,9 +32,9 @@ local SHADER_VERTEX = [[
 
     attribute vec3 VertexNormal;
 
-    varying vec3 v_worldPos;
-    varying vec3 v_localPos;
-    varying vec3 v_normal;
+    varying LOVE_HIGHP_OR_MEDIUMP vec3 v_worldPos;
+    varying LOVE_HIGHP_OR_MEDIUMP vec3 v_localPos;
+    varying LOVE_HIGHP_OR_MEDIUMP vec3 v_normal;
 
     vec4 position(mat4 transform_projection, vec4 vertex_position) {
         vec3 localPos = vertex_position.xyz;
@@ -69,28 +69,23 @@ local SHADER_VERTEX = [[
 ]]
 
 local SHADER_PIXEL = [[
-    #ifdef GL_ES
-    #ifdef GL_FRAGMENT_PRECISION_HIGH
-    precision highp float;
-    #endif
-    #endif
-    uniform vec3  u_eyePos; // отдельная uniform для пиксельного шейдера (WebGL требует одинаковую точность общих uniform)
+    uniform LOVE_HIGHP_OR_MEDIUMP vec3  u_eyePos; // отдельная uniform для пиксельного шейдера (WebGL требует одинаковую точность общих uniform)
     uniform vec4  u_baseColor;
     uniform vec3  u_emissive;
     uniform float u_specular;
     uniform float u_woodStrength;
     uniform float u_woodScale;
     uniform float u_materialType; // 0=wood, 1=donut, 2=pine, 3=uranium, 4=graphite, 5=forest_grass, 6=tree_bark
-    uniform float u_time;
+    uniform LOVE_HIGHP_OR_MEDIUMP float u_time;
 
-    varying vec3 v_worldPos;
-    varying vec3 v_localPos;
-    varying vec3 v_normal;
+    varying LOVE_HIGHP_OR_MEDIUMP vec3 v_worldPos;
+    varying LOVE_HIGHP_OR_MEDIUMP vec3 v_localPos;
+    varying LOVE_HIGHP_OR_MEDIUMP vec3 v_normal;
 
     // Процедурный 3D-шум для текстуры древесных волокон и годовых колец
     float woodHash3(vec3 p) {
-        p = fract(p * vec3(443.897, 441.423, 437.195));
-        p += dot(p, p.yzx + 19.19);
+        p = fract(p * vec3(0.1031, 0.1030, 0.0973));
+        p += dot(p, p.yxz + 33.33);
         return fract((p.x + p.y) * p.z);
     }
 

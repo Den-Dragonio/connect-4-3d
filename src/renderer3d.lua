@@ -69,7 +69,12 @@ local SHADER_VERTEX = [[
 ]]
 
 local SHADER_PIXEL = [[
-    uniform vec3  u_camPos;
+    #ifdef GL_ES
+    #ifdef GL_FRAGMENT_PRECISION_HIGH
+    precision highp float;
+    #endif
+    #endif
+    uniform vec3  u_eyePos; // отдельная uniform для пиксельного шейдера (WebGL требует одинаковую точность общих uniform)
     uniform vec4  u_baseColor;
     uniform vec3  u_emissive;
     uniform float u_specular;
@@ -125,7 +130,7 @@ local SHADER_PIXEL = [[
 
     vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords) {
         vec3 N = normalize(v_normal);
-        vec3 V = normalize(u_camPos - v_worldPos);
+        vec3 V = normalize(u_eyePos - v_worldPos);
 
         vec3 samplePos = (v_worldPos * 0.65 + v_localPos * 0.85) * u_woodScale;
         float grain = woodPattern(samplePos);
@@ -685,17 +690,24 @@ function Renderer3D:_getPieceMaterialAndMesh(pieceSkin, player)
     return 0.0, self.meshTorus
 end
 
+-- Безопасная отправка uniform: пропускает переменные, удалённые оптимизатором GLSL (важно для WebGL / мобильных GPU)
+function Renderer3D:_send(name, value)
+    if self.shader:hasUniform(name) then
+        self.shader:send(name, value)
+    end
+end
+
 function Renderer3D:_drawMeshTransform(mesh, pos, axisX, axisY, axisZ, baseColor, emissive, specular, woodStrength, woodScale, materialType)
-    self.shader:send("u_modelPos",     pos)
-    self.shader:send("u_modelX",       axisX)
-    self.shader:send("u_modelY",       axisY)
-    self.shader:send("u_modelZ",       axisZ)
-    self.shader:send("u_baseColor",    baseColor)
-    self.shader:send("u_emissive",     emissive or { 0.0, 0.0, 0.0 })
-    self.shader:send("u_specular",     specular or 0.28)
-    self.shader:send("u_woodStrength", woodStrength or 0.85)
-    self.shader:send("u_woodScale",    woodScale or 1.0)
-    self.shader:send("u_materialType", materialType or 0.0)
+    self:_send("u_modelPos",     pos)
+    self:_send("u_modelX",       axisX)
+    self:_send("u_modelY",       axisY)
+    self:_send("u_modelZ",       axisZ)
+    self:_send("u_baseColor",    baseColor)
+    self:_send("u_emissive",     emissive or { 0.0, 0.0, 0.0 })
+    self:_send("u_specular",     specular or 0.28)
+    self:_send("u_woodStrength", woodStrength or 0.85)
+    self:_send("u_woodScale",    woodScale or 1.0)
+    self:_send("u_materialType", materialType or 0.0)
     love.graphics.draw(mesh)
 end
 
@@ -710,13 +722,14 @@ function Renderer3D:renderScene(screenW, screenH, state)
     love.graphics.setDepthMode("lequal", true)
     love.graphics.setShader(self.shader)
 
-    self.shader:send("u_time",       love.timer.getTime())
-    self.shader:send("u_camPos",     { self.camPos.x,   self.camPos.y,   self.camPos.z   })
-    self.shader:send("u_camRight",   { self.camRight.x, self.camRight.y, self.camRight.z })
-    self.shader:send("u_camUp",      { self.camUp.x,    self.camUp.y,    self.camUp.z    })
-    self.shader:send("u_camFwd",     { self.camFwd.x,   self.camFwd.y,   self.camFwd.z   })
-    self.shader:send("u_projScale",  { f / aspect, f })
-    self.shader:send("u_clipOffset", { clipOffsetX, clipOffsetY })
+    self:_send("u_time",       love.timer.getTime())
+    self:_send("u_camPos",     { self.camPos.x,   self.camPos.y,   self.camPos.z   })
+    self:_send("u_eyePos",     { self.camPos.x,   self.camPos.y,   self.camPos.z   })
+    self:_send("u_camRight",   { self.camRight.x, self.camRight.y, self.camRight.z })
+    self:_send("u_camUp",      { self.camUp.x,    self.camUp.y,    self.camUp.z    })
+    self:_send("u_camFwd",     { self.camFwd.x,   self.camFwd.y,   self.camFwd.z   })
+    self:_send("u_projScale",  { f / aspect, f })
+    self:_send("u_clipOffset", { clipOffsetX, clipOffsetY })
 
     local boardSkin = state.config.getBoardSkin()
     local pieceSkin = state.config.getPieceSkin()
@@ -978,13 +991,14 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
     love.graphics.setDepthMode("lequal", true)
     love.graphics.setShader(self.shader)
 
-    self.shader:send("u_time",       love.timer.getTime())
-    self.shader:send("u_camPos",     { camPos.x,   camPos.y,   camPos.z   })
-    self.shader:send("u_camRight",   { camRight.x, camRight.y, camRight.z })
-    self.shader:send("u_camUp",      { camUp.x,    camUp.y,    camUp.z    })
-    self.shader:send("u_camFwd",     { camFwd.x,   camFwd.y,   camFwd.z   })
-    self.shader:send("u_projScale",  { (f / aspect) * 0.55, f * 0.55 })
-    self.shader:send("u_clipOffset", { clipOffX, clipOffY })
+    self:_send("u_time",       love.timer.getTime())
+    self:_send("u_camPos",     { camPos.x,   camPos.y,   camPos.z   })
+    self:_send("u_eyePos",     { camPos.x,   camPos.y,   camPos.z   })
+    self:_send("u_camRight",   { camRight.x, camRight.y, camRight.z })
+    self:_send("u_camUp",      { camUp.x,    camUp.y,    camUp.z    })
+    self:_send("u_camFwd",     { camFwd.x,   camFwd.y,   camFwd.z   })
+    self:_send("u_projScale",  { (f / aspect) * 0.55, f * 0.55 })
+    self:_send("u_clipOffset", { clipOffX, clipOffY })
 
     local ca, sa = math.cos(angle), math.sin(angle)
 

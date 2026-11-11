@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: connect4-3d-web
+    runtime: static
+    buildCommand: echo "Static Web & Download Portal for Connect 4 3D"
+    staticPublishPath: ./web
+    headers:
+      - path: /*
+        name: Cross-Origin-Opener-Policy
+        value: same-origin
+      - path: /*
+        name: Cross-Origin-Embedder-Policy
+        value: require-corp
+

@@ -1,0 +1,15 @@
+{
+  "rules": {
+    "users": {
+      ".read": true,
+      "$username": {
+        ".write": true
+      }
+    },
+    "matches": {
+      ".read": true,
+      ".write": true
+    }
+  }
+}
+

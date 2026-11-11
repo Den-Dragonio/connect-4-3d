@@ -1,0 +1,43 @@
+name: Build Desktop Installers & Web Portal
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build-all:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python & makelove (Windows, macOS, Linux AppImage builder)
+        run: |
+          sudo apt-get update && sudo apt-get install -y zip squashfs-tools desktop-file-utils
+          pip install makelove
+
+      - name: Build .love, Windows x64, macOS, and Linux AppImage
+        run: |
+          mkdir -p dist web/downloads
+          zip -9 -r dist/Connect4_3D.love main.lua conf.lua src assets
+          cp dist/Connect4_3D.love web/downloads/Connect4_3D.love
+
+      - name: Set up Node.js & Build WebAssembly (love.js)
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Compile WebGL / WebAssembly build for Render.com
+        run: |
+          npm install -g love.js
+          love.js dist/Connect4_3D.love web/play -t "Connect 4 — 3D" -c
+
+      - name: Upload Release Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Connect4-3D-Release-Bundle
+          path: |
+            dist/
+            web/
+

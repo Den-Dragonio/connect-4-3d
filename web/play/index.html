@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#23262b">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Connect 4 3D">
+    <link rel="manifest" href="../manifest.json">
+    <link rel="apple-touch-icon" href="../icon-192.png">
+    <title>Connect 4 — 3D (Онлайн &amp; Мобильная версия)</title>
+    <link rel="stylesheet" type="text/css" href="theme/love.css">
+    <style>
+      * {
+        box-sizing: border-box;
+        -webkit-tap-highlight-color: transparent;
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      html, body {
+        background-color: #23262b !important;
+        color: #f2f5fa !important;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        height: 100dvh;
+        overflow: hidden;
+        touch-action: none;
+        overscroll-behavior: none;
+        display: flex;
+        flex-direction: column;
+      }
+      .topbar {
+        width: 100%;
+        padding: 6px 10px;
+        background: #2b2e35;
+        border-bottom: 1px solid #4a4f59;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        align-items: center;
+        gap: 6px;
+        z-index: 10;
+      }
+      .btn-group {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        flex-wrap: wrap;
+      }
+      .topbar a, .topbar button {
+        background: #383d47;
+        color: #f2f5fa;
+        border: 1px solid #5c616d;
+        padding: 6px 10px;
+        border-radius: 7px;
+        text-decoration: none;
+        font-size: 13px;
+        font-weight: 600;
+        cursor: pointer;
+        line-height: 1.1;
+      }
+      .topbar a:hover, .topbar button:hover, .topbar button:active {
+        background: #42856b;
+      }
+      .stage {
+        flex: 1;
+        width: 100%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+        overflow: hidden;
+        padding: 4px;
+      }
+      #canvas, #loadingCanvas {
+        max-width: 100%;
+        max-height: 100%;
+        width: auto !important;
+        height: auto !important;
+        aspect-ratio: 1280 / 800;
+        object-fit: contain;
+        border-radius: 8px;
+        border: 1px solid #4a4f59;
+        box-shadow: 0 8px 28px rgba(0,0,0,0.45);
+        touch-action: none;
+      }
+      @media (max-width: 900px) {
+        .hide-mobile { display: none; }
+        .topbar { padding: 4px 6px; }
+        .topbar a, .topbar button { padding: 5px 8px; font-size: 12px; }
+        .stage { padding: 0; }
+        #canvas, #loadingCanvas {
+          border-radius: 0;
+          border: none;
+          width: 100% !important;
+          height: 100% !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="topbar">
+      <div class="btn-group">
+        <a href="../index.html">← Скачать / Инфо</a>
+        <button type="button" onclick="sendGameKey('Escape', 27)" title="Выход в меню (Esc)">Меню (Esc)</button>
+      </div>
+      <div class="btn-group">
+        <button type="button" onclick="sendGameKey('ArrowDown', 40)" title="К 1-му ходу">⏮</button>
+        <button type="button" onclick="sendGameKey('ArrowLeft', 37)" title="На 1 ход назад">◀</button>
+        <button type="button" onclick="sendGameKey('ArrowRight', 39)" title="На 1 ход вперед">▶</button>
+        <button type="button" onclick="sendGameKey('ArrowUp', 38)" title="К крайнему ходу">⏭</button>
+        <button type="button" onclick="sendGameKey('KeyF', 70)" title="Скрыть/показать окно победы (F)">👁 Поле (F)</button>
+        <button type="button" onclick="openMobileTextPrompt()" title="Ввод текста с клавиатуры телефона">⌨ Ввод</button>
+        <button type="button" onclick="goFullScreen()" title="На весь экран">⛶</button>
+      </div>
+    </div>
+
+    <div class="stage">
+      <canvas id="loadingCanvas" oncontextmenu="event.preventDefault()" width="1280" height="800"></canvas>
+      <canvas id="canvas" oncontextmenu="event.preventDefault()"></canvas>
+    </div>
+
+    <script type='text/javascript'>
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('../sw.js').catch(function(){});
+      }
+
+      function goFullScreen(){
+        var el = document.documentElement;
+        if (el.requestFullscreen) el.requestFullscreen();
+        else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+      }
+
+      function sendGameKey(code, keyCode) {
+        var down = new KeyboardEvent('keydown', { key: code, code: code, keyCode: keyCode, which: keyCode, bubbles: true });
+        var up   = new KeyboardEvent('keyup',   { key: code, code: code, keyCode: keyCode, which: keyCode, bubbles: true });
+        window.dispatchEvent(down);
+        document.dispatchEvent(down);
+        setTimeout(function() {
+          window.dispatchEvent(up);
+          document.dispatchEvent(up);
+        }, 45);
+      }
+
+      function openMobileTextPrompt() {
+        var val = window.prompt("Введите текст для активного поля (Логин / Email / Пароль / IP):", "");
+        if (val === null) return;
+        // Clear current field with Backspaces, then send characters
+        for (var i = 0; i < 32; i++) {
+          sendGameKey('Backspace', 8);
+        }
+        setTimeout(function() {
+          for (var j = 0; j < val.length; j++) {
+            var ch = val.charAt(j);
+            var code = val.charCodeAt(j);
+            var ev = new KeyboardEvent('keypress', { key: ch, charCode: code, keyCode: code, which: code, bubbles: true });
+            window.dispatchEvent(ev);
+            document.dispatchEvent(ev);
+          }
+        }, 60);
+      }
+
+      // Universal Mobile Touch & Pinch-to-Zoom Bridge for iOS Safari & Android Chrome
+      (function setupMobileTouchBridge() {
+        var canvas = document.getElementById('canvas');
+        var lastX = 0, lastY = 0;
+        var lastPinch = null;
+        var isTouching = false;
+
+        function dispatchMouse(type, clientX, clientY, movX, movY) {
+          var ev = new MouseEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+            button: 0,
+            buttons: (type === 'mouseup') ? 0 : 1,
+            clientX: clientX,
+            clientY: clientY,
+            movementX: movX || 0,
+            movementY: movY || 0
+          });
+          canvas.dispatchEvent(ev);
+        }
+
+        canvas.addEventListener('touchstart', function(e) {
+          e.preventDefault();
+          window.focus();
+          if (e.touches.length === 1) {
+            isTouching = true;
+            lastPinch = null;
+            lastX = e.touches[0].clientX;
+            lastY = e.touches[0].clientY;
+            dispatchMouse('mousemove', lastX, lastY, 0, 0);
+            dispatchMouse('mousedown', lastX, lastY, 0, 0);
+          } else if (e.touches.length >= 2) {
+            var dx = e.touches[0].clientX - e.touches[1].clientX;
+            var dy = e.touches[0].clientY - e.touches[1].clientY;
+            lastPinch = Math.hypot(dx, dy);
+          }
+        }, { passive: false });
+
+        canvas.addEventListener('touchmove', function(e) {
+          e.preventDefault();
+          if (e.touches.length >= 2) {
+            var dx = e.touches[0].clientX - e.touches[1].clientX;
+            var dy = e.touches[0].clientY - e.touches[1].clientY;
+            var dist = Math.hypot(dx, dy);
+            if (lastPinch !== null) {
+              var delta = lastPinch - dist;
+              if (Math.abs(delta) > 2) {
+                var wheelEv = new WheelEvent('wheel', {
+                  bubbles: true,
+                  cancelable: true,
+                  deltaY: delta * 1.5
+                });
+                canvas.dispatchEvent(wheelEv);
+              }
+            }
+            lastPinch = dist;
+          } else if (e.touches.length === 1 && isTouching) {
+            var cx = e.touches[0].clientX;
+            var cy = e.touches[0].clientY;
+            var mx = cx - lastX;
+            var my = cy - lastY;
+            lastX = cx;
+            lastY = cy;
+            dispatchMouse('mousemove', cx, cy, mx, my);
+          }
+        }, { passive: false });
+
+        canvas.addEventListener('touchend', function(e) {
+          e.preventDefault();
+          if (e.touches.length < 2) {
+            lastPinch = null;
+          }
+          if (e.touches.length === 0 && isTouching) {
+            isTouching = false;
+            dispatchMouse('mouseup', lastX, lastY, 0, 0);
+          }
+        }, { passive: false });
+      })();
+
+      var loadingContext = document.getElementById('loadingCanvas').getContext('2d');
+      function drawLoadingText(text) {
+        var canvas = loadingContext.canvas;
+        loadingContext.fillStyle = "rgb(35, 38, 43)";
+        loadingContext.fillRect(0, 0, canvas.width, canvas.height);
+
+        loadingContext.font = 'bold 30px sans-serif';
+        loadingContext.textAlign = 'center';
+        loadingContext.fillStyle = "rgb(242, 245, 250)";
+        loadingContext.fillText(text, canvas.width / 2, canvas.height / 2);
+
+        loadingContext.font = '20px sans-serif';
+        loadingContext.fillStyle = "rgb(173, 181, 194)";
+        loadingContext.fillText("CONNECT 4 — 3D (ПК, iPhone и Android)", canvas.width / 2, canvas.height / 2 - 55);
+      }
+
+      window.onload = function () { window.focus(); };
+      window.onclick = function () { window.focus(); };
+
+      window.addEventListener("keydown", function(e) {
+        if([32, 37, 38, 39, 40].indexOf(e.keyCode) > -1) {
+          e.preventDefault();
+        }
+      }, false);
+
+      var Module = {
+        arguments: ["./game.love"],
+        INITIAL_MEMORY: 67108864,
+        printErr: console.error.bind(console),
+        canvas: (function() {
+          var canvas = document.getElementById('canvas');
+          canvas.addEventListener("webglcontextlost", function(e) { alert('WebGL context lost. Reload the page.'); e.preventDefault(); }, false);
+          return canvas;
+        })(),
+        setStatus: function(text) {
+          if (text) {
+            drawLoadingText(text);
+          } else if (Module.remainingDependencies === 0) {
+            document.getElementById('loadingCanvas').style.display = 'none';
+            document.getElementById('canvas').style.visibility = 'visible';
+          }
+        },
+        totalDependencies: 0,
+        remainingDependencies: 0,
+        monitorRunDependencies: function(left) {
+          this.remainingDependencies = left;
+          this.totalDependencies = Math.max(this.totalDependencies, left);
+          Module.setStatus(left ? 'Загрузка 3D-движка... (' + (this.totalDependencies-left) + '/' + this.totalDependencies + ')' : 'Готово!');
+        }
+      };
+      Module.setStatus('Загрузка игры...');
+      window.onerror = function(event) {
+        Module.setStatus('Ошибка WebGL — перезагрузите страницу');
+        Module.setStatus = function(text) {
+          if (text) Module.printErr('[post-exception status] ' + text);
+        };
+      };
+
+      var applicationLoad = function(e) {
+        Love(Module);
+      }
+    </script>
+    <script type="text/javascript" src="game.js"></script>
+    <script async type="text/javascript" src="love.js" onload="applicationLoad(this)"></script>
+  </body>
+</html>

@@ -486,15 +486,22 @@ local function parseFriendRoomJson(resp, fallbackCode)
     local host = resp:match('"host"%s*:%s*"([^"]*)"')
     if not host or host == "" then return nil end
     return {
-        code        = resp:match('"code"%s*:%s*"([^"]*)"') or fallbackCode,
-        host        = host,
-        guest       = resp:match('"guest"%s*:%s*"([^"]*)"') or "",
-        ruleMode    = resp:match('"ruleMode"%s*:%s*"([^"]*)"') or "standard",
-        timeMinutes = tonumber(resp:match('"timeMinutes"%s*:%s*(%d+)')) or 5,
-        status      = resp:match('"status"%s*:%s*"([^"]*)"') or "waiting",
-        moveCount   = tonumber(resp:match('"moveCount"%s*:%s*(%d+)')) or 0,
-        moves       = resp:match('"moves"%s*:%s*"([^"]*)"') or "",
-        ts          = tonumber(resp:match('"ts"%s*:%s*(%d+)')) or 0
+        code           = resp:match('"code"%s*:%s*"([^"]*)"') or fallbackCode,
+        host           = host,
+        guest          = resp:match('"guest"%s*:%s*"([^"]*)"') or "",
+        ruleMode       = resp:match('"ruleMode"%s*:%s*"([^"]*)"') or "standard",
+        timeMinutes    = tonumber(resp:match('"timeMinutes"%s*:%s*(%d+)')) or 5,
+        status         = resp:match('"status"%s*:%s*"([^"]*)"') or "waiting",
+        moveCount      = tonumber(resp:match('"moveCount"%s*:%s*(%d+)')) or 0,
+        moves          = resp:match('"moves"%s*:%s*"([^"]*)"') or "",
+        hostPieceSkin  = resp:match('"hostPieceSkin"%s*:%s*"([^"]*)"') or "classic_bw",
+        hostBoardSkin  = resp:match('"hostBoardSkin"%s*:%s*"([^"]*)"') or "dark_wood",
+        guestPieceSkin = resp:match('"guestPieceSkin"%s*:%s*"([^"]*)"') or "classic_bw",
+        guestBoardSkin = resp:match('"guestBoardSkin"%s*:%s*"([^"]*)"') or "dark_wood",
+        rematchHost    = tonumber(resp:match('"rematchHost"%s*:%s*(%d+)')) or 0,
+        rematchGuest   = tonumber(resp:match('"rematchGuest"%s*:%s*(%d+)')) or 0,
+        rematchRound   = tonumber(resp:match('"rematchRound"%s*:%s*(%d+)')) or 1,
+        ts             = tonumber(resp:match('"ts"%s*:%s*(%d+)')) or 0
     }
 end
 
@@ -502,15 +509,22 @@ function FirebaseClient.createFriendRoom(opts)
     opts = opts or {}
     local code = genRoomCode6()
     local room = {
-        code        = code,
-        host        = opts.host or "Player",
-        guest       = "",
-        ruleMode    = (opts.ruleMode == "free") and "free" or "standard",
-        timeMinutes = (opts.timeMinutes == 1) and 1 or 5,
-        status      = "waiting",
-        moveCount   = 0,
-        moves       = "",
-        ts          = os.time()
+        code           = code,
+        host           = opts.host or "Player",
+        guest          = "",
+        ruleMode       = (opts.ruleMode == "free") and "free" or "standard",
+        timeMinutes    = (opts.timeMinutes == 1) and 1 or 5,
+        status         = "waiting",
+        moveCount      = 0,
+        moves          = "",
+        hostPieceSkin  = opts.hostPieceSkin or "classic_bw",
+        hostBoardSkin  = opts.hostBoardSkin or "dark_wood",
+        guestPieceSkin = "classic_bw",
+        guestBoardSkin = "dark_wood",
+        rematchHost    = 0,
+        rematchGuest   = 0,
+        rematchRound   = 1,
+        ts             = os.time()
     }
     if FirebaseClient.isConfigured() then
         local url = FirebaseClient.getDatabaseUrl("friendRooms/" .. code)
@@ -527,7 +541,7 @@ function FirebaseClient.fetchFriendRoom(code)
     return parseFriendRoomJson(resp, code)
 end
 
-function FirebaseClient.joinFriendRoom(code, guestName)
+function FirebaseClient.joinFriendRoom(code, guestName, guestSkins)
     code = tostring(code or ""):upper():gsub("[^A-Z0-9]", "")
     if #code < 4 then return nil, "friend_room_not_found" end
     if not FirebaseClient.isConfigured() or (love and love.system and love.system.getOS() == "Web") then
@@ -543,16 +557,51 @@ function FirebaseClient.joinFriendRoom(code, guestName)
     if room.host:lower() == tostring(guestName or ""):lower() then
         return nil, "friend_room_not_found"
     end
+    guestSkins = guestSkins or {}
+    local gPiece = guestSkins.pieceSkin or "classic_bw"
+    local gBoard = guestSkins.boardSkin or "dark_wood"
     local patch = {
-        guest  = guestName,
-        status = "playing",
-        ts     = os.time()
+        guest          = guestName,
+        guestPieceSkin = gPiece,
+        guestBoardSkin = gBoard,
+        status         = "playing",
+        ts             = os.time()
     }
     local url = FirebaseClient.getDatabaseUrl("friendRooms/" .. code)
     httpRequest("PATCH", url, encodeSimpleJson(patch), false)
     room.guest = guestName
+    room.guestPieceSkin = gPiece
+    room.guestBoardSkin = gBoard
     room.status = "playing"
     return room, nil
+end
+
+function FirebaseClient.setFriendRoomRematch(code, role, val)
+    code = tostring(code or ""):upper():gsub("[^A-Za-z0-9]", "")
+    if code == "" or not FirebaseClient.isConfigured() then return end
+    local url = FirebaseClient.getDatabaseUrl("friendRooms/" .. code)
+    local patch = { ts = os.time() }
+    if role == "host" then
+        patch.rematchHost = val and 1 or 0
+    else
+        patch.rematchGuest = val and 1 or 0
+    end
+    httpRequest("PATCH", url, encodeSimpleJson(patch), true)
+end
+
+function FirebaseClient.resetFriendRoomForRematch(code, nextRound)
+    code = tostring(code or ""):upper():gsub("[^A-Za-z0-9]", "")
+    if code == "" or not FirebaseClient.isConfigured() then return end
+    local url = FirebaseClient.getDatabaseUrl("friendRooms/" .. code)
+    httpRequest("PATCH", url, encodeSimpleJson({
+        moves        = "",
+        moveCount    = 0,
+        rematchHost  = 0,
+        rematchGuest = 0,
+        rematchRound = nextRound or 2,
+        status       = "playing",
+        ts           = os.time()
+    }), true)
 end
 
 function FirebaseClient.pushFriendRoomMove(code, movesStr, moveCount)

@@ -1091,12 +1091,12 @@ function Renderer3D:_buildButterflyWingMesh()
     return love.graphics.newMesh(VERTEX_FORMAT, verts, "triangles", "static")
 end
 
-function Renderer3D:pickPegAtScreenPos(mx, my, screenW, screenH, boardLogic)
+function Renderer3D:pickPegAtScreenPos(mx, my, screenW, screenH, boardLogic, clipOffsetX, clipOffsetY)
     local aspect = screenW / screenH
     local f = 1.0 / math.tan(self.fovRad * 0.5)
 
-    local ndcX = (mx / screenW) * 2.0 - 1.0
-    local ndcY = 1.0 - (my / screenH) * 2.0
+    local ndcX = ((mx / screenW) * 2.0 - 1.0) - (clipOffsetX or 0.0)
+    local ndcY = (1.0 - (my / screenH) * 2.0) - (clipOffsetY or 0.0)
 
     local rayDir = vNorm({
         x = self.camFwd.x + self.camRight.x * (ndcX * aspect / f) + self.camUp.x * (ndcY / f),
@@ -1106,8 +1106,8 @@ function Renderer3D:pickPegAtScreenPos(mx, my, screenW, screenH, boardLogic)
 
     local bestX, bestZ, bestY = nil, nil, nil
     local bestT = 1e9
-    local hitRadius = 0.36
     local isFree = boardLogic and (boardLogic.ruleMode == "free")
+    local hitRadius = isFree and 0.44 or 0.36
 
     for gx = 1, 4 do
         for gz = 1, 4 do
@@ -1240,8 +1240,10 @@ function Renderer3D:renderScene(screenW, screenH, state)
     self:_send("u_projScale",  { f / aspect, f })
     self:_send("u_clipOffset", { clipOffsetX, clipOffsetY })
 
-    local boardSkin = state.config.getBoardSkin()
-    local pieceSkin = state.config.getPieceSkin()
+    local boardSkin  = state.boardSkinOverride or state.config.getBoardSkin()
+    local pieceSkin  = state.config.getPieceSkin()
+    local pieceSkinW = state.whitePieceSkin or pieceSkin
+    local pieceSkinB = state.blackPieceSkin or pieceSkin
     local isRound   = (state.config.boardShape == "round")
     local bStyle    = boardSkin.style or "wood"
     local isForestBoard     = (bStyle == "forest")
@@ -1564,26 +1566,27 @@ function Renderer3D:renderScene(screenW, screenH, state)
     -- 4. Отрисовка нанизанных на столбики фишек (с учетом отмотки ходов maxPly, вольного режима и особых скинов)
     if state.logic then
         local function drawSinglePiece(gx, gy, gz, player, isCurrentRewindHead, overrideAlpha)
-            local wx, wy, wz = self:gridToWorldXYZ(gx, gy, gz, pieceSkin)
+            local pSkin = (player == 1) and pieceSkinW or pieceSkinB
+            local wx, wy, wz = self:gridToWorldXYZ(gx, gy, gz, pSkin)
             if not overrideAlpha and not isRewound and state.activeDrop and state.activeDrop.x == gx and state.activeDrop.y == gy and state.activeDrop.z == gz then
                 wy = state.activeDrop.currentY
             end
 
-            local baseCol = (player == 1) and pieceSkin.player1Color or pieceSkin.player2Color
+            local baseCol = (player == 1) and pSkin.player1Color or pSkin.player2Color
             if overrideAlpha then
                 baseCol = { baseCol[1], baseCol[2], baseCol[3], overrideAlpha }
             end
             local key = gx .. ":" .. gy .. ":" .. gz
             local isWinPiece = (not overrideAlpha) and winSet[key]
-            local matType, pMesh = self:_getPieceMaterialAndMesh(pieceSkin, player, gy)
+            local matType, pMesh = self:_getPieceMaterialAndMesh(pSkin, player, gy)
 
             local taperXZ = 1.0
             local scaleY = 1.0
-            if pieceSkin.style == "pine" then
+            if pSkin.style == "pine" then
                 -- Ёлка: нижний ярус широкий, верхушка пушистым конусом закрывает штырь
                 taperXZ = 1.24 - (gy - 1) * 0.14
                 scaleY = 1.0
-            elseif pieceSkin.style == "snowman" then
+            elseif pSkin.style == "snowman" then
                 if gy == 1 then
                     taperXZ, scaleY = 1.04, 0.80
                 elseif gy == 2 then
@@ -1594,7 +1597,7 @@ function Renderer3D:renderScene(screenW, screenH, state)
                     taperXZ, scaleY = 0.88, 1.00
                     baseCol = { 0.08, 0.08, 0.10, overrideAlpha or 1.0 }
                 end
-            elseif pieceSkin.taperByHeight then
+            elseif pSkin.taperByHeight then
                 taperXZ = 1.28 - (gy - 1) * 0.19
             end
 
@@ -1606,7 +1609,12 @@ function Renderer3D:renderScene(screenW, screenH, state)
             elseif isCurrentRewindHead then
                 emissive = { 0.18 * pulse, 0.18 * pulse, 0.08 * pulse }
             elseif overrideAlpha then
-                emissive = { 0.12, 0.14, 0.18 }
+                local gp = 0.75 + 0.25 * pulse
+                emissive = {
+                    math.max(0.20, baseCol[1] * 0.38) * gp,
+                    math.max(0.20, baseCol[2] * 0.38) * gp,
+                    math.max(0.22, baseCol[3] * 0.38) * gp
+                }
             end
 
             self:_drawMeshTransform(
@@ -1617,14 +1625,14 @@ function Renderer3D:renderScene(screenW, screenH, state)
                 { 0, 0, scale * taperXZ },
                 baseCol,
                 emissive,
-                pieceSkin.specular,
-                pieceSkin.woodStrength,
+                pSkin.specular,
+                pSkin.woodStrength,
                 1.8,
                 matType
             )
 
             -- Золотая 3D-звезда на макушке собранной ёлки (gy == 4)
-            if pieceSkin.style == "pine" and gy == 4 and not overrideAlpha then
+            if pSkin.style == "pine" and gy == 4 and not overrideAlpha then
                 local sa = math.rad(35) + love.timer.getTime() * 0.75
                 local cS, sS = math.cos(sa), math.sin(sa)
                 self:_drawMeshTransform(
@@ -1640,7 +1648,7 @@ function Renderer3D:renderScene(screenW, screenH, state)
             end
 
             -- Детали снеговика: шарф + пуговицы (gy=2), лицо с морковкой (gy=3), лента на цилиндре (gy=4)
-            if pieceSkin.style == "snowman" and not overrideAlpha then
+            if pSkin.style == "snowman" and not overrideAlpha then
                 -- Лицом к базовой камере (yaw = 35 deg): вперёд (fx, fz), вправо (rx, rz)
                 local fx, fz = 0.5736, 0.8192
                 local rx, rz = 0.8192, -0.5736
@@ -1752,13 +1760,24 @@ function Renderer3D:renderScene(screenW, screenH, state)
             end
         end
 
-        -- Полупрозрачный призрак будущей фишки в Вольном режиме
+        -- Полупрозрачный предосмотр будущей фишки и уровня на штыре в режиме без гравитации (Вольный режим)
         if state.logic.ruleMode == "free" and state.hoveredX and state.hoveredZ and state.hoveredY
            and not state.activeDrop and not isRewound and not state.logic.winner and not state.logic.isDraw then
             if state.logic:canPlace(state.hoveredX, state.hoveredY, state.hoveredZ) then
+                local pSkin = (state.logic.currentPlayer == 1) and pieceSkinW or pieceSkinB
+                local gx, gy, gz = state.hoveredX, state.hoveredY, state.hoveredZ
+                local wx, wy, wz = self:gridToWorldXYZ(gx, gy, gz, pSkin)
                 love.graphics.setDepthMode("lequal", false)
                 love.graphics.setBlendMode("alpha")
-                drawSinglePiece(state.hoveredX, state.hoveredY, state.hoveredZ, state.logic.currentPlayer, false, 0.44)
+                drawSinglePiece(gx, gy, gz, state.logic.currentPlayer, false, 0.56)
+                self:_drawMeshTransform(
+                    self.meshThinTorus,
+                    { wx, wy, wz },
+                    { 1.32, 0, 0 }, { 0, 0.55, 0 }, { 0, 0, 1.32 },
+                    { 0.98, 0.88, 0.38, 0.42 },
+                    { 0.40, 0.32, 0.08 },
+                    0.2, 0.0, 1.0, 0.0
+                )
                 love.graphics.setDepthMode("lequal", true)
             end
         end

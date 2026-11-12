@@ -194,7 +194,7 @@ local I18N = {
             board_obsidian = "Obsidian Marble (Soon)",
             board_gold = "Pure Gold",
 
-            ui_theme_gray = "Minimalist Gray (Default)",
+            ui_theme_gray = "Gray Day/Night (Default)",
             ui_theme_wood = "Wooden Vibe",
             ui_theme_obsidian = "Carbon Dark",
             ui_theme_silver = "Clean Light Minimalism",
@@ -298,7 +298,12 @@ local I18N = {
             friend_open_all = "All Friends",
             friend_just_now = "just now",
             friend_mins_ago = "%d min ago",
-            friend_hours_ago = "%d h ago"
+            friend_hours_ago = "%d h ago",
+            use_own_skins = "Use own skins (vs players)",
+            rematch_btn = "Rematch (%ds)",
+            rematch_waiting = "Waiting for opponent (%ds)...",
+            rematch_incoming = "Accept Rematch! (%ds)",
+            rematch_expired = "Rematch Expired"
         },
 
         ru = {
@@ -491,7 +496,7 @@ local I18N = {
             board_obsidian = "Черный мрамор (Скоро)",
             board_gold = "Золотое поле",
 
-            ui_theme_gray = "Минимализм Серый (Дефолт)",
+            ui_theme_gray = "Серый День/Ночь (Дефолт)",
             ui_theme_wood = "Деревянный вайб",
             ui_theme_obsidian = "Темный карбон",
             ui_theme_silver = "Светлый минимализм",
@@ -595,7 +600,12 @@ local I18N = {
             friend_open_all = "Все друзья",
             friend_just_now = "только что",
             friend_mins_ago = "%d мин назад",
-            friend_hours_ago = "%d ч назад"
+            friend_hours_ago = "%d ч назад",
+            use_own_skins = "Использовать собственные скины",
+            rematch_btn = "Реванш (%dс)",
+            rematch_waiting = "Ожидание ответа (%dс)...",
+            rematch_incoming = "Принять реванш! (%dс)",
+            rematch_expired = "Время вышло"
         },
 
         fr = {
@@ -766,7 +776,7 @@ local I18N = {
             board_obsidian = "Marbre Noir (Bientôt)",
             board_gold = "Champ d'Or",
 
-            ui_theme_gray = "Gris Minimaliste",
+            ui_theme_gray = "Gris Jour/Nuit (Défaut)",
             ui_theme_wood = "Style Bois",
             ui_theme_obsidian = "Carbone Sombre",
             ui_theme_silver = "Argent Clair",
@@ -795,7 +805,12 @@ local I18N = {
             friend_open_all = "Tous les amis",
             friend_just_now = "à l'instant",
             friend_mins_ago = "il y a %d min",
-            friend_hours_ago = "il y a %d h"
+            friend_hours_ago = "il y a %d h",
+            use_own_skins = "Utiliser mes propres skins",
+            rematch_btn = "Revanche (%ds)",
+            rematch_waiting = "En attente (%ds)...",
+            rematch_incoming = "Accepter la revanche ! (%ds)",
+            rematch_expired = "Temps écoulé"
         }
     }
 }

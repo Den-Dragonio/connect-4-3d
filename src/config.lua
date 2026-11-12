@@ -26,6 +26,7 @@ local Config = {
 
     cameraSensitivity = 1.0,
     animateDrops = true,
+    useOwnSkins = true,
 
     -- Display settings
     fullscreen = false,
@@ -100,7 +101,6 @@ local Config = {
 
     uiThemeOrder = {
         "minimal_gray",
-        "clean_silver",
         "white_clean",
         "black_oled",
         "new_year",
@@ -113,6 +113,9 @@ local Config = {
         minimal_gray = {
             id = "minimal_gray",
             nameKey = "ui_theme_gray",
+            splitPreview = true,
+            adaptiveDayNight = true,
+            -- Night / Dark Gray palette (19:00 - 07:00)
             bgClear        = { 0.14, 0.15, 0.17, 1.0 },
             panelBg        = { 0.18, 0.19, 0.22, 0.95 },
             panelBorder    = { 0.36, 0.38, 0.43, 0.92 },
@@ -125,6 +128,44 @@ local Config = {
             textMain       = { 0.95, 0.96, 0.98, 1.0 },
             textSub        = { 0.68, 0.71, 0.76, 1.0 },
             accentText     = { 0.86, 0.89, 0.94, 1.0 },
+            dayPalette = {
+                id             = "minimal_gray",
+                nameKey        = "ui_theme_gray",
+                bgClear        = { 0.78, 0.80, 0.84, 1.0 },
+                panelBg        = { 0.86, 0.88, 0.91, 0.96 },
+                panelBorder    = { 0.56, 0.60, 0.66, 0.95 },
+                btnDefault     = { 0.74, 0.77, 0.82, 0.96 },
+                btnPrimary     = { 0.28, 0.48, 0.78, 0.98 },
+                btnActive      = { 0.20, 0.58, 0.42, 0.96 },
+                btnAccent      = { 0.50, 0.55, 0.64, 0.96 },
+                btnBorder      = { 0.52, 0.56, 0.62, 0.94 },
+                btnHoverBorder = { 0.20, 0.38, 0.68, 1.0 },
+                textMain       = { 0.12, 0.14, 0.18, 1.0 },
+                textSub        = { 0.34, 0.38, 0.44, 1.0 },
+                accentText     = { 0.16, 0.34, 0.64, 1.0 },
+                unlocked       = true,
+                unlockType     = "free",
+                price          = 0
+            },
+            nightPalette = {
+                id             = "minimal_gray",
+                nameKey        = "ui_theme_gray",
+                bgClear        = { 0.14, 0.15, 0.17, 1.0 },
+                panelBg        = { 0.18, 0.19, 0.22, 0.95 },
+                panelBorder    = { 0.36, 0.38, 0.43, 0.92 },
+                btnDefault     = { 0.23, 0.25, 0.29, 0.95 },
+                btnPrimary     = { 0.34, 0.38, 0.45, 0.98 },
+                btnActive      = { 0.26, 0.52, 0.42, 0.96 },
+                btnAccent      = { 0.42, 0.45, 0.52, 0.96 },
+                btnBorder      = { 0.45, 0.48, 0.54, 0.90 },
+                btnHoverBorder = { 0.82, 0.85, 0.90, 1.0 },
+                textMain       = { 0.95, 0.96, 0.98, 1.0 },
+                textSub        = { 0.68, 0.71, 0.76, 1.0 },
+                accentText     = { 0.86, 0.89, 0.94, 1.0 },
+                unlocked       = true,
+                unlockType     = "free",
+                price          = 0
+            },
             unlocked       = true,
             unlockType     = "free",
             price          = 0
@@ -166,25 +207,6 @@ local Config = {
             unlocked       = false,
             unlockType     = "coins",
             price          = 100
-        },
-        clean_silver = {
-            id = "clean_silver",
-            nameKey = "ui_theme_silver",
-            bgClear        = { 0.22, 0.24, 0.27, 1.0 },
-            panelBg        = { 0.26, 0.28, 0.32, 0.95 },
-            panelBorder    = { 0.52, 0.55, 0.60, 0.92 },
-            btnDefault     = { 0.32, 0.34, 0.39, 0.95 },
-            btnPrimary     = { 0.44, 0.48, 0.55, 0.98 },
-            btnActive      = { 0.28, 0.58, 0.46, 0.96 },
-            btnAccent      = { 0.50, 0.54, 0.62, 0.96 },
-            btnBorder      = { 0.58, 0.62, 0.68, 0.90 },
-            btnHoverBorder = { 0.92, 0.94, 0.98, 1.0 },
-            textMain       = { 0.98, 0.99, 1.00, 1.0 },
-            textSub        = { 0.78, 0.81, 0.86, 1.0 },
-            accentText     = { 0.90, 0.94, 1.00, 1.0 },
-            unlocked       = true,
-            unlockType     = "free",
-            price          = 0
         },
         white_clean = {
             id = "white_clean",
@@ -460,9 +482,9 @@ local Config = {
         "snowy_winter",
         "forest_glade",
         "obsidian_stub",
+        "manhattan",
         "japanese_roof",
-        "skyscraper",
-        "manhattan"
+        "skyscraper"
     },
 
     boardSkins = {
@@ -615,14 +637,14 @@ local Config = {
             nameKey = "board_manhattan",
             style = "manhattan",
             soundType = "metal",
+            rarity = "rare",
             hasMist = false,
-            underRework = true,
             baseColor = { 0.08, 0.09, 0.13, 1.0 }, -- Night Manhattan glass towers
             pegColor  = { 0.65, 0.70, 0.78, 1.0 }, -- Slender spire antennas with blinking red beacons
             pegHover  = { 1.00, 0.45, 0.38, 1.0 },
             woodStrength = 0.08,
-            unlocked = false,
-            unlockType = "rework",
+            unlocked = true,
+            unlockType = "free",
             price = 0
         }
     },
@@ -646,8 +668,20 @@ function Config.getBoardSkin()
     return Config.boardSkins[Config.activeBoardSkin] or Config.boardSkins.dark_wood
 end
 
-function Config.getUITheme()
-    return Config.uiThemes[Config.activeUITheme] or Config.uiThemes.minimal_gray
+function Config.getUITheme(hourOverride)
+    local th = Config.uiThemes[Config.activeUITheme] or Config.uiThemes.minimal_gray
+    if th.adaptiveDayNight and th.dayPalette and th.nightPalette then
+        local hour = hourOverride
+        if hour == nil then
+            local dt = os.date("*t")
+            hour = (dt and dt.hour) or 12
+        end
+        if hour >= 7 and hour < 19 then
+            return th.dayPalette
+        end
+        return th.nightPalette
+    end
+    return th
 end
 
 -- Strict Validation Rules:

@@ -64,6 +64,7 @@ function Storage.save()
         botColorChoice     = Config.botColorChoice,
         onlineTimeMinutes  = Config.onlineTimeMinutes,
         ruleMode           = Config.ruleMode,
+        useOwnSkins        = Config.useOwnSkins,
         unlockedPieces     = unlockedPieces,
         unlockedBoards     = unlockedBoards,
         unlockedThemes     = unlockedThemes,
@@ -106,8 +107,15 @@ function Storage.load()
     else
         Config.activeBoardSkin = "dark_wood"
     end
-    if type(data.activeUITheme) == "string" and Config.uiThemes[data.activeUITheme] then
-        Config.activeUITheme = data.activeUITheme
+    if type(data.activeUITheme) == "string" then
+        if data.activeUITheme == "clean_silver" then
+            Config.activeUITheme = "minimal_gray"
+        elseif Config.uiThemes[data.activeUITheme] then
+            Config.activeUITheme = data.activeUITheme
+        end
+    end
+    if type(data.useOwnSkins) == "boolean" then
+        Config.useOwnSkins = data.useOwnSkins
     end
     if type(data.botDifficulty) == "number" then
         Config.botDifficulty = math.max(1, math.min(3, data.botDifficulty))

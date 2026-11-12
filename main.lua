@@ -206,9 +206,11 @@ local function startFriendRoomLobby(inviteTarget)
         return false
     end
     local room = Firebase.createFriendRoom({
-        host = Config.profile.username,
-        ruleMode = Config.ruleMode,
-        timeMinutes = Config.onlineTimeMinutes or 5
+        host          = Config.profile.username,
+        ruleMode      = Config.ruleMode,
+        timeMinutes   = Config.onlineTimeMinutes or 5,
+        hostPieceSkin = Config.activePieceSkin,
+        hostBoardSkin = Config.activeBoardSkin
     })
     if not room then
         friendGameUI.errorMsg = I18N.t("friend_room_not_found")
@@ -254,6 +256,28 @@ local matchStartTime = 0.0
 local viewPly = 0
 local moveLogScroll = 0
 local profileMatchScroll = 0
+local rematchState = { timer = 60.0, myAccepted = false, peerAccepted = false }
+local matchOpponentSkins = { pieceSkin = nil, boardSkin = nil }
+
+local function getMatchRenderSkins()
+    if Config.currentMode == Config.GameMode.VS_BOT or Config.useOwnSkins then
+        return nil, nil, nil
+    end
+    local myPiece = Config.getPieceSkin()
+    local myBoard = Config.getBoardSkin()
+    local oppPieceId = matchOpponentSkins.pieceSkin
+    if not oppPieceId or not Config.pieceSkins[oppPieceId] or oppPieceId == Config.activePieceSkin then
+        oppPieceId = (Config.activePieceSkin == "classic_bw") and "crimson_cobalt" or "classic_bw"
+    end
+    local oppPiece = Config.pieceSkins[oppPieceId] or myPiece
+    local oppBoard = (matchOpponentSkins.boardSkin and Config.boardSkins[matchOpponentSkins.boardSkin]) or myBoard
+    if Config.humanPlayer == BoardLogic.Player.WHITE then
+        -- Белый игрок задаёт скин поля, а фишки вперемешку (белые = ваш скин, чёрные = скин соперника)
+        return myBoard, myPiece, oppPiece
+    else
+        return oppBoard, oppPiece, myPiece
+    end
+end
 
 local function easeOutBounce(t)
     local n1 = 7.5625
@@ -422,14 +446,26 @@ local function startNewGame(mode, difficulty, lanRole, onlineRoom)
         else
             Config.humanPlayer = BoardLogic.Player.WHITE
         end
+        matchOpponentSkins.pieceSkin = LAN.peerPieceSkin
+        matchOpponentSkins.boardSkin = LAN.peerBoardSkin
     elseif Config.currentMode == Config.GameMode.ONLINE and localOnlineRoom then
         Config.ruleMode = localOnlineRoom.ruleMode or Config.ruleMode
         Config.onlineTimeMinutes = localOnlineRoom.timeMinutes or Config.onlineTimeMinutes
-        Config.humanPlayer = (localOnlineRoom.role == "guest")
-            and BoardLogic.Player.BLACK
-            or  BoardLogic.Player.WHITE
+        if localOnlineRoom.role == "guest" then
+            Config.humanPlayer = BoardLogic.Player.BLACK
+            matchOpponentSkins.pieceSkin = localOnlineRoom.hostPieceSkin
+            matchOpponentSkins.boardSkin = localOnlineRoom.hostBoardSkin
+        else
+            Config.humanPlayer = BoardLogic.Player.WHITE
+            matchOpponentSkins.pieceSkin = localOnlineRoom.guestPieceSkin
+            matchOpponentSkins.boardSkin = localOnlineRoom.guestBoardSkin
+        end
     else
         Config.humanPlayer = BoardLogic.Player.WHITE
+        if Config.currentMode == Config.GameMode.LOCAL_PVP then
+            matchOpponentSkins.pieceSkin = (Config.activePieceSkin == "classic_bw") and "crimson_cobalt" or "classic_bw"
+            matchOpponentSkins.boardSkin = Config.activeBoardSkin
+        end
     end
 
     gameLogic:reset(Config.ruleMode)
@@ -440,6 +476,7 @@ local function startNewGame(mode, difficulty, lanRole, onlineRoom)
     botTimer = nil
     lastRatingDelta = 0
     hideWinModal = false
+    rematchState = { timer = 60.0, myAccepted = false, peerAccepted = false }
     matchStartTime = love.timer.getTime()
     viewPly = 0
     moveLogScroll = 0
@@ -466,6 +503,7 @@ end
 local function finalizeGameEnd()
     if isReplayMode then return end
     Sound.play("win")
+    rematchState = { timer = 60.0, myAccepted = false, peerAccepted = false }
     local elapsedSec = math.max(1, math.floor(love.timer.getTime() - matchStartTime))
     lastRatingDelta = Config.recordMatchResult(
         Config.currentMode,
@@ -522,7 +560,7 @@ local function triggerMove(gx, gz, fromNetwork, gy)
     syncMoveLogScrollToPly()
 
     if Config.currentMode == Config.GameMode.LAN and not fromNetwork then
-        LAN.sendMove(gx, gz)
+        LAN.sendMove(res.pos.x, res.pos.z, res.pos.y)
     elseif Config.currentMode == Config.GameMode.ONLINE and localOnlineRoom and not fromNetwork then
         local token = string.format("%d,%d,%d", res.pos.x, res.pos.y, res.pos.z)
         localOnlineRoom.movesStr = (localOnlineRoom.movesStr and localOnlineRoom.movesStr ~= "")
@@ -603,9 +641,18 @@ function love.load()
         Sound.play("win")
         startNewGame(Config.GameMode.LAN, nil, role)
     end
-    LAN.onMoveReceived = function(gx, gz)
+    LAN.onMoveReceived = function(gx, gz, gy)
         if currentScreen == "game" and Config.currentMode == Config.GameMode.LAN then
-            triggerMove(gx, gz, true)
+            triggerMove(gx, gz, true, gy)
+        end
+    end
+    LAN.onRematchReceived = function()
+        if currentScreen == "game" and Config.currentMode == Config.GameMode.LAN and gameLogic.isGameOver then
+            rematchState.peerAccepted = true
+            if rematchState.myAccepted and rematchState.timer > 0 then
+                Sound.play("win")
+                startNewGame(Config.GameMode.LAN, nil, LAN.role)
+            end
         end
     end
 
@@ -653,13 +700,34 @@ function love.load()
             config = Config, logic = gameLogic, maxPly = 0, showCoords = true, coordFont = fonts.coord
         })
 
+        -- Проверка объединённой темы День/Ночь, разблокировки Манхэттена, Вольного режима и Реванша
+        assert(Config.boardSkins.manhattan and Config.boardSkins.manhattan.unlocked == true, "Expected Manhattan unlocked")
+        Config.activeUITheme = "minimal_gray"
+        local dayT = Config.getUITheme(12)
+        local nightT = Config.getUITheme(23)
+        assert(dayT.bgClear[1] > 0.6 and nightT.bgClear[1] < 0.25, "Expected day/night IRL adaptive gray theme")
+        assert(Config.useOwnSkins == true, "Expected useOwnSkins default ON")
+
+        gameLogic:reset("free")
+        gameLogic:placePiece(1, 1, 1)
+        renderer:renderScene(800, 600, {
+            config = Config, logic = gameLogic, maxPly = 1,
+            hoveredX = 2, hoveredZ = 2, hoveredY = 3,
+            showCoords = true, coordFont = fonts.coord,
+            clipOffsetX = 0.0, clipOffsetY = 0.04,
+            whitePieceSkin = Config.pieceSkins.classic_bw,
+            blackPieceSkin = Config.pieceSkins.crimson_cobalt,
+            boardSkinOverride = Config.boardSkins.manhattan
+        })
+
         -- Проверка полного стека gy=1..4, победы и HUD-экрана для 3D-скинов (pine_tree, snowman)
-        gameLogic:reset()
+        gameLogic:reset("standard")
         gameLogic:dropPiece(1, 1); gameLogic:dropPiece(2, 1)
         gameLogic:dropPiece(1, 1); gameLogic:dropPiece(2, 1)
         gameLogic:dropPiece(1, 1); gameLogic:dropPiece(2, 1)
         local winRes = gameLogic:dropPiece(1, 1)
         assert(winRes and winRes.ok and gameLogic.isGameOver, "Expected vertical win in CI test")
+        rematchState.timer = 45
         currentScreen = "game"
         for _, skinId in ipairs({ "pine_tree", "snowman", "classic_bw" }) do
             Config.activePieceSkin = skinId
@@ -668,7 +736,11 @@ function love.load()
             hideWinModal = true
             love.draw()
         end
+        shopTab = "themes"
         currentScreen = "shop"
+        love.draw()
+        shopTab = "pieces"
+        currentScreen = "settings_modal"
         love.draw()
         currentScreen = "online_modal"
         love.draw()
@@ -694,7 +766,7 @@ function love.update(dt)
 
     LAN.update()
 
-    if Config.selectedUITheme == "new_year" then
+    if Config.activeUITheme == "new_year" then
         for _, sf in ipairs(snowflakes) do
             sf.y = sf.y + sf.vy * dt
             sf.x = sf.x + (sf.vx + math.sin(love.timer.getTime() * 1.3 + sf.phase) * 0.015) * dt
@@ -721,14 +793,19 @@ function love.update(dt)
                 local remote = Firebase.fetchFriendRoom(friendGameUI.room.code)
                 if remote and remote.guest ~= "" and remote.status == "playing" then
                     local roomObj = {
-                        code        = remote.code,
-                        role        = "host",
-                        opponent    = remote.guest,
-                        ruleMode    = remote.ruleMode,
-                        timeMinutes = remote.timeMinutes,
-                        syncedMoves = 0,
-                        movesStr    = "",
-                        pollTimer   = 0.9
+                        code           = remote.code,
+                        role           = "host",
+                        opponent       = remote.guest,
+                        ruleMode       = remote.ruleMode,
+                        timeMinutes    = remote.timeMinutes,
+                        hostPieceSkin  = Config.activePieceSkin,
+                        hostBoardSkin  = Config.activeBoardSkin,
+                        guestPieceSkin = remote.guestPieceSkin or "classic_bw",
+                        guestBoardSkin = remote.guestBoardSkin or "dark_wood",
+                        round          = tonumber(remote.rematchRound) or 1,
+                        syncedMoves    = 0,
+                        movesStr       = "",
+                        pollTimer      = 0.9
                     }
                     friendGameUI.room = nil
                     friendGameUI.view = "list"
@@ -741,21 +818,46 @@ function love.update(dt)
         end
     end
 
-    if currentScreen == "game" and Config.currentMode == Config.GameMode.ONLINE and localOnlineRoom and not gameLogic.isGameOver then
+    if currentScreen == "game" and gameLogic.isGameOver and not activeDrop and not isReplayMode then
+        rematchState.timer = math.max(0, (rematchState.timer or 0) - dt)
+    end
+
+    if currentScreen == "game" and Config.currentMode == Config.GameMode.ONLINE and localOnlineRoom then
         localOnlineRoom.pollTimer = (localOnlineRoom.pollTimer or 0) - dt
         if localOnlineRoom.pollTimer <= 0 then
             localOnlineRoom.pollTimer = 0.9
             local remote = Firebase.fetchFriendRoom(localOnlineRoom.code)
-            if remote and remote.moveCount > #gameLogic.moveHistory then
-                localOnlineRoom.movesStr = remote.moves or ""
-                local parsed = {}
-                for mx, my, mz in (remote.moves or ""):gmatch("(%d+),(%d+),(%d+)") do
-                    table.insert(parsed, { tonumber(mx), tonumber(my), tonumber(mz) })
-                end
-                for idx = #gameLogic.moveHistory + 1, #parsed do
-                    local mv = parsed[idx]
-                    if mv then
-                        triggerMove(mv[1], mv[3], true, mv[2])
+            if remote then
+                if not gameLogic.isGameOver and remote.moveCount > #gameLogic.moveHistory then
+                    localOnlineRoom.movesStr = remote.moves or ""
+                    local parsed = {}
+                    for mx, my, mz in (remote.moves or ""):gmatch("(%d+),(%d+),(%d+)") do
+                        table.insert(parsed, { tonumber(mx), tonumber(my), tonumber(mz) })
+                    end
+                    for idx = #gameLogic.moveHistory + 1, #parsed do
+                        local mv = parsed[idx]
+                        if mv then
+                            triggerMove(mv[1], mv[3], true, mv[2])
+                        end
+                    end
+                elseif gameLogic.isGameOver then
+                    if localOnlineRoom.role == "host" then
+                        rematchState.peerAccepted = (remote.rematchGuest == 1)
+                        if remote.rematchHost == 1 and remote.rematchGuest == 1 and rematchState.timer > 0 then
+                            localOnlineRoom.round = (localOnlineRoom.round or 1) + 1
+                            localOnlineRoom.movesStr = ""
+                            localOnlineRoom.syncedMoves = 0
+                            Firebase.resetFriendRoomForRematch(localOnlineRoom.code, localOnlineRoom.round)
+                            startNewGame(Config.GameMode.ONLINE, nil, nil, localOnlineRoom)
+                        end
+                    else
+                        rematchState.peerAccepted = (remote.rematchHost == 1)
+                        if (tonumber(remote.rematchRound) or 1) > (localOnlineRoom.round or 1) then
+                            localOnlineRoom.round = tonumber(remote.rematchRound) or ((localOnlineRoom.round or 1) + 1)
+                            localOnlineRoom.movesStr = ""
+                            localOnlineRoom.syncedMoves = 0
+                            startNewGame(Config.GameMode.ONLINE, nil, nil, localOnlineRoom)
+                        end
                     end
                 end
             end
@@ -846,7 +948,7 @@ function love.update(dt)
     if not isTouchDevice then
         local mx, my = love.mouse.getPosition()
         if not isReplayMode and not gameLogic.isGameOver and not activeDrop and isLocalPlayerTurn() and not mouseState.dragged then
-            local nx, nz, ny = renderer:pickPegAtScreenPos(mx, my, sw, sh, gameLogic)
+            local nx, nz, ny = renderer:pickPegAtScreenPos(mx, my, sw, sh, gameLogic, 0.0, 0.04)
             if (nx ~= hoveredX or nz ~= hoveredZ or ny ~= hoveredY) and nx ~= nil then
                 Sound.play("hover")
             end
@@ -1455,20 +1557,28 @@ local function drawFriendGameModal(sw, sh)
                     friendGameUI.errorMsg = I18N.t("friend_room_not_found")
                     return
                 end
-                local okJoin, roomOrErr = Firebase.joinFriendRoom(code, p.username)
+                local okJoin, roomOrErr = Firebase.joinFriendRoom(code, p.username, {
+                    pieceSkin = Config.activePieceSkin,
+                    boardSkin = Config.activeBoardSkin
+                })
                 if okJoin and type(roomOrErr) == "table" then
                     friendGameUI.errorMsg = nil
                     friendGameUI.room = nil
                     localOnlineRoom = {
-                        code = roomOrErr.code,
-                        role = "guest",
-                        opponent = roomOrErr.host,
-                        ruleMode = roomOrErr.ruleMode or Config.ruleMode,
-                        timeMinutes = tonumber(roomOrErr.timeMinutes) or 5,
-                        lastMoveCount = 0,
-                        pollTimer = 0
+                        code           = roomOrErr.code,
+                        role           = "guest",
+                        opponent       = roomOrErr.host,
+                        ruleMode       = roomOrErr.ruleMode or Config.ruleMode,
+                        timeMinutes    = tonumber(roomOrErr.timeMinutes) or 5,
+                        hostPieceSkin  = roomOrErr.hostPieceSkin or "classic_bw",
+                        hostBoardSkin  = roomOrErr.hostBoardSkin or "dark_wood",
+                        guestPieceSkin = Config.activePieceSkin,
+                        guestBoardSkin = Config.activeBoardSkin,
+                        round          = tonumber(roomOrErr.rematchRound) or 1,
+                        lastMoveCount  = 0,
+                        pollTimer      = 0.9
                     }
-                    startNewGame(Config.GameMode.ONLINE)
+                    startNewGame(Config.GameMode.ONLINE, nil, nil, localOnlineRoom)
                 else
                     friendGameUI.errorMsg = I18N.t("friend_room_not_found")
                 end
@@ -1537,20 +1647,28 @@ local function drawFriendGameModal(sw, sh)
                 primary = true, font = fonts.small,
                 onClick = function()
                     Sound.play("click")
-                    Firebase.clearGameInvite(p.username, inv.from)
-                    local okJoin, roomOrErr = Firebase.joinFriendRoom(inv.code, p.username)
+                    Firebase.clearGameInvite(p.username, inv.code)
+                    local okJoin, roomOrErr = Firebase.joinFriendRoom(inv.code, p.username, {
+                        pieceSkin = Config.activePieceSkin,
+                        boardSkin = Config.activeBoardSkin
+                    })
                     if okJoin and type(roomOrErr) == "table" then
                         localOnlineRoom = {
-                            code = roomOrErr.code,
-                            role = "guest",
-                            opponent = roomOrErr.host,
-                            ruleMode = roomOrErr.ruleMode or Config.ruleMode,
-                            timeMinutes = tonumber(roomOrErr.timeMinutes) or 5,
-                            lastMoveCount = 0,
-                            pollTimer = 0
+                            code           = roomOrErr.code,
+                            role           = "guest",
+                            opponent       = roomOrErr.host,
+                            ruleMode       = roomOrErr.ruleMode or Config.ruleMode,
+                            timeMinutes    = tonumber(roomOrErr.timeMinutes) or 5,
+                            hostPieceSkin  = roomOrErr.hostPieceSkin or "classic_bw",
+                            hostBoardSkin  = roomOrErr.hostBoardSkin or "dark_wood",
+                            guestPieceSkin = Config.activePieceSkin,
+                            guestBoardSkin = Config.activeBoardSkin,
+                            round          = tonumber(roomOrErr.rematchRound) or 1,
+                            lastMoveCount  = 0,
+                            pollTimer      = 0.9
                         }
                         friendGameUI.invites = {}
-                        startNewGame(Config.GameMode.ONLINE)
+                        startNewGame(Config.GameMode.ONLINE, nil, nil, localOnlineRoom)
                     else
                         friendStatusFeedback = I18N.t("friend_room_not_found")
                         refreshFriendsState()
@@ -1561,7 +1679,7 @@ local function drawFriendGameModal(sw, sh)
                 font = fonts.small,
                 onClick = function()
                     Sound.play("click")
-                    Firebase.clearGameInvite(p.username, inv.from)
+                    Firebase.clearGameInvite(p.username, inv.code)
                     refreshFriendsState()
                 end
             })
@@ -2058,6 +2176,8 @@ local function drawLanModal(sw, sh)
         onClick = function()
             Sound.play("click")
             lanIpFocused = false
+            LAN.localPieceSkin = Config.activePieceSkin
+            LAN.localBoardSkin = Config.activeBoardSkin
             LAN.startHost()
         end
     })
@@ -2066,6 +2186,8 @@ local function drawLanModal(sw, sh)
         onClick = function()
             Sound.play("click")
             lanIpFocused = false
+            LAN.localPieceSkin = Config.activePieceSkin
+            LAN.localBoardSkin = Config.activeBoardSkin
             LAN.startClient(LAN.joinIP)
         end
     })
@@ -2713,7 +2835,7 @@ end
 
 local function drawSettingsModal(sw, sh)
     local ui = Config.getUITheme()
-    local pw, ph = 560, 460
+    local pw, ph = 560, 508
     local px, py = (sw - pw) * 0.5, (sh - ph) * 0.5
     drawPanel(px, py, pw, ph)
 
@@ -2786,11 +2908,22 @@ local function drawSettingsModal(sw, sh)
         })
     end
 
+    local ownCheck = Config.useOwnSkins and "[✓] " or "[ ] "
+    drawButton("settings_own_skins", bx, py + 318, bw, 38, ownCheck .. I18N.t("use_own_skins"), {
+        active = Config.useOwnSkins,
+        font = fonts.small,
+        onClick = function()
+            Sound.play("click")
+            Config.useOwnSkins = not Config.useOwnSkins
+            Storage.save()
+        end
+    })
+
     love.graphics.setFont(fonts.small)
     love.graphics.setColor(ui.textSub)
-    love.graphics.print(I18N.t("server_label") .. "  " .. I18N.t("server_stub"), bx, py + 322)
+    love.graphics.print(I18N.t("server_label") .. "  " .. I18N.t("server_stub"), bx, py + 368)
 
-    drawButton("open_rules", bx, py + 350, bw, 42, I18N.t("rules_btn"), {
+    drawButton("open_rules", bx, py + 394, bw, 40, I18N.t("rules_btn"), {
         accent = true,
         onClick = function()
             Sound.play("click")
@@ -3296,19 +3429,49 @@ local function drawShopScreen(sw, sh)
                 love.graphics.printf(I18N.t(th.nameKey), cx + 12, rowY + 18, cardW - 24, "center")
 
                 local prevX, prevW = cx + 22, cardW - 44
-                love.graphics.setColor(th.bgClear)
-                love.graphics.rectangle("fill", prevX, prevY, prevW, prevH, 10, 10)
-                love.graphics.setColor(th.panelBg)
-                love.graphics.rectangle("fill", prevX + 18, prevY + 16, prevW - 36, prevH - 32, 10, 10)
-                love.graphics.setColor(th.panelBorder)
-                love.graphics.rectangle("line", prevX + 18, prevY + 16, prevW - 36, prevH - 32, 10, 10)
+                if th.splitPreview and th.dayPalette and th.nightPalette then
+                    local dayP, nightP = th.dayPalette, th.nightPalette
+                    -- Верхний левый треугольник: Светло-серый день, Нижний правый: Тёмно-серый ночь
+                    local function drawDiagHalf(triPts, pal)
+                        love.graphics.stencil(function()
+                            love.graphics.polygon("fill", triPts)
+                        end, "replace", 1)
+                        love.graphics.setStencilTest("equal", 1)
+                        love.graphics.setColor(pal.bgClear)
+                        love.graphics.rectangle("fill", prevX, prevY, prevW, prevH, 10, 10)
+                        love.graphics.setColor(pal.panelBg)
+                        love.graphics.rectangle("fill", prevX + 18, prevY + 16, prevW - 36, prevH - 32, 10, 10)
+                        love.graphics.setColor(pal.panelBorder)
+                        love.graphics.rectangle("line", prevX + 18, prevY + 16, prevW - 36, prevH - 32, 10, 10)
+                        love.graphics.setColor(pal.btnPrimary)
+                        love.graphics.rectangle("fill", prevX + 34, prevY + 32, prevW - 68, 32, 8, 8)
+                        love.graphics.setColor(pal.btnDefault)
+                        love.graphics.rectangle("fill", prevX + 34, prevY + 74, prevW - 68, 30, 8, 8)
+                        love.graphics.setColor(pal.btnAccent)
+                        love.graphics.rectangle("fill", prevX + 34, prevY + 114, prevW - 68, 30, 8, 8)
+                        love.graphics.setStencilTest()
+                    end
+                    drawDiagHalf({ prevX, prevY, prevX + prevW, prevY, prevX, prevY + prevH }, dayP)
+                    drawDiagHalf({ prevX + prevW, prevY, prevX + prevW, prevY + prevH, prevX, prevY + prevH }, nightP)
+                    love.graphics.setColor(ui.panelBorder)
+                    love.graphics.setLineWidth(1.6)
+                    love.graphics.line(prevX + 2, prevY + prevH - 2, prevX + prevW - 2, prevY + 2)
+                    love.graphics.setLineWidth(1)
+                else
+                    love.graphics.setColor(th.bgClear)
+                    love.graphics.rectangle("fill", prevX, prevY, prevW, prevH, 10, 10)
+                    love.graphics.setColor(th.panelBg)
+                    love.graphics.rectangle("fill", prevX + 18, prevY + 16, prevW - 36, prevH - 32, 10, 10)
+                    love.graphics.setColor(th.panelBorder)
+                    love.graphics.rectangle("line", prevX + 18, prevY + 16, prevW - 36, prevH - 32, 10, 10)
 
-                love.graphics.setColor(th.btnPrimary)
-                love.graphics.rectangle("fill", prevX + 34, prevY + 32, prevW - 68, 32, 8, 8)
-                love.graphics.setColor(th.btnDefault)
-                love.graphics.rectangle("fill", prevX + 34, prevY + 74, prevW - 68, 30, 8, 8)
-                love.graphics.setColor(th.btnAccent)
-                love.graphics.rectangle("fill", prevX + 34, prevY + 114, prevW - 68, 30, 8, 8)
+                    love.graphics.setColor(th.btnPrimary)
+                    love.graphics.rectangle("fill", prevX + 34, prevY + 32, prevW - 68, 32, 8, 8)
+                    love.graphics.setColor(th.btnDefault)
+                    love.graphics.rectangle("fill", prevX + 34, prevY + 74, prevW - 68, 30, 8, 8)
+                    love.graphics.setColor(th.btnAccent)
+                    love.graphics.rectangle("fill", prevX + 34, prevY + 114, prevW - 68, 30, 8, 8)
+                end
 
                 local isSelected = (Config.activeUITheme == themeId)
                 if th.unlocked then
@@ -3625,13 +3788,43 @@ local function drawCleanGameHUD(sw, sh)
                 end
             })
 
-            drawButton("win_again", px + 38, py + ph - 66, 205, 46, I18N.t("play_again"), {
-                primary = true,
-                onClick = function()
-                    Sound.play("click")
+            local rematchSecs = math.ceil(math.max(0, rematchState.timer or 0))
+            local isLiveNet = (Config.currentMode == Config.GameMode.ONLINE and localOnlineRoom) or (Config.currentMode == Config.GameMode.LAN and LAN.connected)
+            local rematchLabel
+            local rematchOpts = { primary = true, font = fonts.small }
+            if rematchState.timer <= 0 then
+                rematchLabel = I18N.t("rematch_expired")
+                rematchOpts.primary = false
+                rematchOpts.disabled = true
+            elseif isLiveNet and rematchState.myAccepted and not rematchState.peerAccepted then
+                rematchLabel = I18N.t("rematch_waiting", rematchSecs)
+                rematchOpts.primary = false
+                rematchOpts.active = true
+            elseif isLiveNet and rematchState.peerAccepted and not rematchState.myAccepted then
+                rematchLabel = I18N.t("rematch_incoming", rematchSecs)
+                rematchOpts.active = true
+                rematchOpts.primary = false
+            else
+                rematchLabel = I18N.t("rematch_btn", rematchSecs)
+            end
+            rematchOpts.onClick = function()
+                if rematchState.timer <= 0 then return end
+                Sound.play("click")
+                if Config.currentMode == Config.GameMode.ONLINE and localOnlineRoom then
+                    rematchState.myAccepted = true
+                    Firebase.setFriendRoomRematch(localOnlineRoom.code, localOnlineRoom.role, true)
+                elseif Config.currentMode == Config.GameMode.LAN and LAN.connected then
+                    rematchState.myAccepted = true
+                    LAN.sendRematch()
+                    if rematchState.peerAccepted then
+                        Sound.play("win")
+                        startNewGame(Config.GameMode.LAN, nil, LAN.role)
+                    end
+                else
                     startNewGame(Config.currentMode, Config.botDifficulty)
                 end
-            })
+            end
+            drawButton("win_rematch", px + 38, py + ph - 66, 205, 46, rematchLabel, rematchOpts)
             drawButton("win_menu", px + pw - 243, py + ph - 66, 205, 46, I18N.t("main_menu"), {
                 onClick = function()
                     Sound.play("click")
@@ -3665,7 +3858,9 @@ end
 function love.draw()
     local sw, sh, uiScale, realW, realH = getUIScaleAndDims()
     local ui = Config.getUITheme()
-    local clearCol = (currentScreen == "game" and Config.activeBoardSkin == "manhattan")
+    local bOv, wPS, bPS = getMatchRenderSkins()
+    local activeBoardId = bOv and bOv.id or Config.activeBoardSkin
+    local clearCol = (currentScreen == "game" and activeBoardId == "manhattan")
         and { 0.015, 0.020, 0.038, 1.0 }
         or ui.bgClear
     love.graphics.clear(clearCol[1], clearCol[2], clearCol[3], 1.0, true, true)
@@ -3673,18 +3868,21 @@ function love.draw()
 
     if currentScreen == "game" then
         renderer:renderScene(realW, realH, {
-            config        = Config,
-            logic         = gameLogic,
-            maxPly        = viewPly,
-            hoveredX      = hoveredX,
-            hoveredZ      = hoveredZ,
-            hoveredY      = hoveredY,
-            activeDrop    = activeDrop,
-            showScattered = false,
-            showCoords    = true,
-            coordFont     = fonts.coord,
-            clipOffsetX   = 0.0,
-            clipOffsetY   = 0.04
+            config            = Config,
+            logic             = gameLogic,
+            maxPly            = viewPly,
+            hoveredX          = hoveredX,
+            hoveredZ          = hoveredZ,
+            hoveredY          = hoveredY,
+            activeDrop        = activeDrop,
+            showScattered     = false,
+            showCoords        = true,
+            coordFont         = fonts.coord,
+            clipOffsetX       = 0.0,
+            clipOffsetY       = 0.04,
+            boardSkinOverride = bOv,
+            whitePieceSkin    = wPS,
+            blackPieceSkin    = bPS
         })
         love.graphics.push()
         love.graphics.scale(uiScale, uiScale)
@@ -3745,7 +3943,7 @@ function love.draw()
     end
 
     -- Новогодний лёгкий снежок и морозная окантовка по краям экрана
-    if Config.selectedUITheme == "new_year" then
+    if Config.activeUITheme == "new_year" then
         for _, sf in ipairs(snowflakes) do
             love.graphics.setColor(0.94, 0.98, 1.0, 0.72)
             love.graphics.circle("fill", sf.x * realW, sf.y * realH, sf.r)
@@ -3756,7 +3954,7 @@ function love.draw()
         love.graphics.setColor(0.88, 0.96, 1.0, 0.35)
         love.graphics.setLineWidth(4)
         love.graphics.rectangle("line", 0, 0, realW, realH, 16, 16)
-    elseif Config.selectedUITheme == "halloween" then
+    elseif Config.activeUITheme == "halloween" then
         love.graphics.setColor(0.95, 0.42, 0.08, 0.14)
         love.graphics.setLineWidth(10)
         love.graphics.rectangle("line", 2, 2, realW - 4, realH - 4, 14, 14)
@@ -3879,7 +4077,7 @@ function love.mousereleased(x, y, button)
             end
 
             if currentScreen == "game" and not isReplayMode and not gameLogic.isGameOver and not activeDrop and isLocalPlayerTurn() then
-                local gx, gz, gy = renderer:pickPegAtScreenPos(x, y, realW, realH, gameLogic)
+                local gx, gz, gy = renderer:pickPegAtScreenPos(x, y, realW, realH, gameLogic, 0.0, 0.04)
                 if gx and gz then
                     if isTouchDevice then
                         if hoveredX == gx and hoveredZ == gz and hoveredY == gy then

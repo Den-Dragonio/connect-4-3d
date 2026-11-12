@@ -12,8 +12,13 @@ local LAN = {
     peerPort = nil,
     joinIP = "127.0.0.1",
     statusMsg = "",
+    localPieceSkin = "classic_bw",
+    localBoardSkin = "dark_wood",
+    peerPieceSkin = "classic_bw",
+    peerBoardSkin = "dark_wood",
     onMoveReceived = nil,
-    onMatchStart = nil
+    onMatchStart = nil,
+    onRematchReceived = nil
 }
 
 function LAN.stop()
@@ -73,22 +78,32 @@ function LAN.startClient(targetIP)
     LAN.peerPort = LAN.PORT
     LAN.statusMsg = "Connecting to " .. LAN.peerIP .. ":" .. LAN.PORT .. "..."
 
-    -- Send HELLO handshake to targetIP and LAN broadcast
+    -- Send HELLO handshake with equipped skins to targetIP and LAN broadcast
+    local helloMsg = string.format("C4_HELLO:%s:%s", tostring(LAN.localPieceSkin or "classic_bw"), tostring(LAN.localBoardSkin or "dark_wood"))
     pcall(function()
-        LAN.udp:sendto("C4_HELLO", LAN.peerIP, LAN.PORT)
+        LAN.udp:sendto(helloMsg, LAN.peerIP, LAN.PORT)
         LAN.udp:setoption("broadcast", true)
-        LAN.udp:sendto("C4_HELLO", "255.255.255.255", LAN.PORT)
+        LAN.udp:sendto(helloMsg, "255.255.255.255", LAN.PORT)
     end)
     return true
 end
 
-function LAN.sendMove(gx, gz)
+function LAN.sendMove(gx, gz, gy)
     if not LAN.udp or not LAN.connected or not LAN.peerIP or not LAN.peerPort then
         return
     end
-    local msg = string.format("C4_MOVE:%d:%d", gx, gz)
+    local msg = string.format("C4_MOVE:%d:%d:%d", gx, gz, gy or 0)
     pcall(function()
         LAN.udp:sendto(msg, LAN.peerIP, LAN.peerPort)
+    end)
+end
+
+function LAN.sendRematch()
+    if not LAN.udp or not LAN.connected or not LAN.peerIP or not LAN.peerPort then
+        return
+    end
+    pcall(function()
+        LAN.udp:sendto("C4_REMATCH", LAN.peerIP, LAN.peerPort)
     end)
 end
 
@@ -98,25 +113,38 @@ function LAN.update()
         local data, ip, port = LAN.udp:receivefrom()
         if not data then break end
 
-        if LAN.role == "host" and data == "C4_HELLO" then
+        if LAN.role == "host" and (data == "C4_HELLO" or data:sub(1, 9) == "C4_HELLO:") then
+            local pSkin, bSkin = data:match("^C4_HELLO:([^:]+):([^:]+)$")
+            LAN.peerPieceSkin = pSkin or "classic_bw"
+            LAN.peerBoardSkin = bSkin or "dark_wood"
             LAN.connected = true
             LAN.peerIP = ip
             LAN.peerPort = port
-            LAN.udp:sendto("C4_WELCOME", ip, port)
+            local welcomeMsg = string.format("C4_WELCOME:%s:%s", tostring(LAN.localPieceSkin or "classic_bw"), tostring(LAN.localBoardSkin or "dark_wood"))
+            LAN.udp:sendto(welcomeMsg, ip, port)
             if LAN.onMatchStart then
                 LAN.onMatchStart("host") -- Host plays White (1st)
             end
-        elseif LAN.role == "client" and data == "C4_WELCOME" then
+        elseif LAN.role == "client" and (data == "C4_WELCOME" or data:sub(1, 11) == "C4_WELCOME:") then
+            local pSkin, bSkin = data:match("^C4_WELCOME:([^:]+):([^:]+)$")
+            LAN.peerPieceSkin = pSkin or "classic_bw"
+            LAN.peerBoardSkin = bSkin or "dark_wood"
             LAN.connected = true
             LAN.peerIP = ip
             LAN.peerPort = port
             if LAN.onMatchStart then
                 LAN.onMatchStart("client") -- Client plays Black (2nd)
             end
+        elseif data == "C4_REMATCH" then
+            if LAN.onRematchReceived then
+                LAN.onRematchReceived()
+            end
         elseif data:sub(1, 8) == "C4_MOVE:" then
-            local gx, gz = data:match("^C4_MOVE:(%d+):(%d+)$")
+            local gx, gz, gy = data:match("^C4_MOVE:(%d+):(%d+):?(%d*)$")
+            local nGy = tonumber(gy)
+            if nGy == 0 then nGy = nil end
             if gx and gz and LAN.onMoveReceived then
-                LAN.onMoveReceived(tonumber(gx), tonumber(gz))
+                LAN.onMoveReceived(tonumber(gx), tonumber(gz), nGy)
             end
         end
     end

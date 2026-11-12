@@ -2920,14 +2920,6 @@ function love.textinput(text)
         end
         return
     end
-    if currentScreen == "tournament_modal" and tournamentUI.view == "join" and key == "backspace" then
-        tournamentUI.joinCode = tournamentUI.joinCode:sub(1, math.max(0, #tournamentUI.joinCode - 1))
-        return
-    end
-    if currentScreen == "profile_modal" and key == "backspace" then
-        friendSearchText = friendSearchText:sub(1, math.max(0, #friendSearchText - 1))
-        return
-    end
     if currentScreen == "lan_modal" and lanIpFocused then
         if #LAN.joinIP < 24 and text:match("^[0-9%.a-zA-Z%-]+$") then
             LAN.joinIP = LAN.joinIP .. text
@@ -2971,19 +2963,6 @@ function love.filedropped(file)
 end
 
 function love.keypressed(key, scancode)
-    if currentScreen == "tournament_modal" and tournamentUI.view == "join" then
-        if #tournamentUI.joinCode < 6 and text:match("^[a-zA-Z0-9]+$") then
-            tournamentUI.joinCode = tournamentUI.joinCode .. text:upper()
-            tournamentUI.errorMsg = nil
-        end
-        return
-    end
-    if currentScreen == "profile_modal" then
-        if #friendSearchText < 12 and text:match("^[a-zA-Z0-9_]+$") then
-            friendSearchText = friendSearchText .. text
-        end
-        return
-    end
     if currentScreen == "tournament_modal" and tournamentUI.view == "join" and key == "backspace" then
         tournamentUI.joinCode = tournamentUI.joinCode:sub(1, math.max(0, #tournamentUI.joinCode - 1))
         return

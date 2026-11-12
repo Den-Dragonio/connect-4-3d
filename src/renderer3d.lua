@@ -459,6 +459,35 @@ local SHADER_PIXEL = [[
                     specFactor     = mix(0.88, 0.45, cornerPier);
                 }
             }
+        } else if (u_materialType > 19.5 && u_materialType < 20.5) {
+            // 20: Крыша ЧАЭС (ребристые бетонные плиты, битум/копоть, жёлто-чёрный радиационный бордюр)
+            float nWear = woodNoise3(v_worldPos * 3.8);
+            float slabJoint = step(0.91, fract(v_worldPos.x * 1.42)) + step(0.92, fract(v_worldPos.z * 1.42));
+            float ribWave = 0.5 + 0.5 * sin(v_worldPos.z * 14.0);
+            float soot = smoothstep(0.42, 0.78, woodNoise3(v_worldPos * 1.9 + vec3(4.1, 0.0, 2.3)));
+            vec3 concreteCol = mix(vec3(0.28, 0.30, 0.31), vec3(0.42, 0.44, 0.45), ribWave * 0.55 + nWear * 0.45);
+            concreteCol = mix(concreteCol, vec3(0.11, 0.12, 0.13), clamp(slabJoint * 0.65 + soot * 0.55, 0.0, 0.85));
+            float edgeBand = step(0.44, max(abs(v_localPos.x), abs(v_localPos.z)));
+            float stripe = step(0.5, fract((v_localPos.x + v_localPos.z) * 14.0));
+            vec3 hazardCol = mix(vec3(0.10, 0.10, 0.11), vec3(0.94, 0.72, 0.10), stripe);
+            float glowCrack = step(0.955, woodNoise3(v_worldPos * 4.5)) * (1.0 - edgeBand);
+            surfaceAlbedo = mix(concreteCol, hazardCol, edgeBand * 0.85);
+            extraGlow += vec3(0.18, 0.92, 0.42) * glowCrack * 0.32;
+            specFactor = mix(0.18, 0.42, edgeBand);
+        } else if (u_materialType > 20.5 && u_materialType < 21.5) {
+            // 21: Промышленные трубы ЧАЭС (бетон и сталь с красно-белыми авиационными кольцами и копотью сверху)
+            float hNorm = clamp(v_localPos.y / 2.68, 0.0, 1.0);
+            float grime = woodNoise3(v_worldPos * 7.5);
+            float bandPos = fract(hNorm * 7.0);
+            float redWhiteArea = step(0.54, hNorm) * (1.0 - step(0.95, hNorm));
+            float isRedBand = step(0.50, bandPos);
+            vec3 concretePipe = mix(vec3(0.36, 0.38, 0.40), vec3(0.52, 0.54, 0.56), grime);
+            vec3 warnCol = mix(vec3(0.86, 0.86, 0.84), vec3(0.78, 0.16, 0.12), isRedBand);
+            surfaceAlbedo = mix(concretePipe, warnCol, redWhiteArea * 0.88);
+            // Копоть у устья трубы
+            float topSoot = smoothstep(0.86, 1.0, hNorm);
+            surfaceAlbedo = mix(surfaceAlbedo, vec3(0.10, 0.10, 0.11), topSoot * 0.78);
+            specFactor = 0.24;
         }
 
         vec3 L1 = normalize(vec3(0.55, 0.78, 0.48));
@@ -1461,8 +1490,7 @@ function Renderer3D:renderScene(screenW, screenH, state)
     local pieceSkin  = state.config.getPieceSkin()
     local pieceSkinW = state.whitePieceSkin or pieceSkin
     local pieceSkinB = state.blackPieceSkin or pieceSkin
-    local isRound   = (state.config.boardShape == "round")
-    local bStyle    = boardSkin.style or "wood"
+    local bStyle     = boardSkin.style or "wood"
     local isForestBoard     = (bStyle == "forest")
     local isMetalBoard      = (bStyle == "metal")
     local isCakeBoard       = (bStyle == "cake")
@@ -1470,19 +1498,23 @@ function Renderer3D:renderScene(screenW, screenH, state)
     local isJapaneseBoard   = (bStyle == "japanese_roof")
     local isSkyscraperBoard = (bStyle == "skyscraper")
     local isManhattanBoard  = (bStyle == "manhattan")
+    local isChernobylBoard  = (bStyle == "chernobyl")
+    local isRound   = (state.config.boardShape == "round") and (not boardSkin.forceSquare) and (not isChernobylBoard) and (not isManhattanBoard)
     local baseMatType = isForestBoard and 5.0
         or (isMetalBoard and 7.0)
         or (isCakeBoard and 8.0)
         or (isSnowyBoard and 15.0)
         or (isJapaneseBoard and 13.0)
         or ((isSkyscraperBoard or isManhattanBoard) and 11.0)
+        or (isChernobylBoard and 20.0)
         or 0.0
     local pegMatType = isForestBoard and 6.0
         or ((isMetalBoard or isSkyscraperBoard or isManhattanBoard) and 7.0)
         or (isCakeBoard and 9.0)
+        or (isChernobylBoard and 21.0)
         or 0.0
     local rimMatType = isForestBoard and 6.0
-        or ((isMetalBoard or isSkyscraperBoard) and 7.0)
+        or ((isMetalBoard or isSkyscraperBoard or isChernobylBoard) and 7.0)
         or (isCakeBoard and 9.0)
         or (isJapaneseBoard and 13.0)
         or 0.0
@@ -1625,7 +1657,22 @@ function Renderer3D:renderScene(screenW, screenH, state)
         )
     end
 
-    -- 1b. 3D-травинки для лесного поля
+    -- 1b. 3D-травинки для лесного поля / вентиляционный парапет ЧАЭС
+    if isChernobylBoard then
+        -- Промзона: бетонный короб саркофага и вентканал вдоль задней кромки крыши ЧАЭС
+        self:_drawMeshTransform(
+            self.meshBox,
+            { 0.0, 0.11, -3.02 },
+            { 5.6, 0, 0 }, { 0, 0.24, 0 }, { 0, 0, 0.42 },
+            { 0.24, 0.26, 0.28, 1.0 }, { 0, 0, 0 }, 0.25, 0.0, 1.0, 20.0
+        )
+        self:_drawMeshTransform(
+            self.meshBox,
+            { -2.98, 0.08, 0.0 },
+            { 0.34, 0, 0 }, { 0, 0.18, 0 }, { 0, 0, 5.6 },
+            { 0.22, 0.24, 0.26, 1.0 }, { 0, 0, 0 }, 0.25, 0.0, 1.0, 7.0
+        )
+    end
     if isForestBoard then
         for gx = 1, 4 do
             for gz = 1, 4 do
@@ -1666,7 +1713,7 @@ function Renderer3D:renderScene(screenW, screenH, state)
             local isHovered = (state.hoveredX == gx and state.hoveredZ == gz)
             local pColor    = isHovered and boardSkin.pegHover or boardSkin.pegColor
             local pEmissive = isHovered and { 0.28, 0.20, 0.06 } or { 0.0, 0.0, 0.0 }
-            local pegScaleXZ = isManhattanBoard and 0.24 or (isSkyscraperBoard and 0.52 or 1.0)
+            local pegScaleXZ = isManhattanBoard and 0.24 or (isSkyscraperBoard and 0.52 or (isChernobylBoard and 1.18 or 1.0))
 
             if isManhattanBoard then
                 local idx = (gx - 1) * 4 + gz
@@ -1730,6 +1777,23 @@ function Renderer3D:renderScene(screenW, screenH, state)
                     1.35,
                     pegMatType
                 )
+                if isChernobylBoard then
+                    -- Уверенное широкое основание трубы на крыше и закопчённый раструб на вершине
+                    self:_drawMeshTransform(
+                        self.meshCylinder,
+                        { wx, 0.11, wz },
+                        { 0.24, 0, 0 }, { 0, 0.22, 0 }, { 0, 0, 0.24 },
+                        { 0.28, 0.30, 0.32, 1.0 }, pEmissive,
+                        0.28, 0.0, 1.0, 7.0
+                    )
+                    self:_drawMeshTransform(
+                        self.meshCylinder,
+                        { wx, Renderer3D.PEG_HEIGHT - 0.04, wz },
+                        { 0.195, 0, 0 }, { 0, 0.11, 0 }, { 0, 0, 0.195 },
+                        { 0.14, 0.14, 0.15, 1.0 }, pEmissive,
+                        0.20, 0.0, 1.0, 0.0
+                    )
+                end
             end
         end
     end
@@ -2076,6 +2140,38 @@ function Renderer3D:renderScene(screenW, screenH, state)
         love.graphics.setDepthMode("lequal", true)
     end
 
+    -- 5c. Густой промышленный дым, поднимающийся из широких труб ЧАЭС
+    if isChernobylBoard then
+        love.graphics.setDepthMode("lequal", false)
+        love.graphics.setBlendMode("alpha")
+        local smokeT = state.staticBoardAnim and 1.25 or love.timer.getTime()
+        for gx = 1, 4 do
+            for gz = 1, 4 do
+                local wx, wz = self:gridToWorldXZ(gx, gz)
+                local seed = (gx - 1) * 4 + gz
+                for k = 0, 2 do
+                    local phase = (smokeT * 0.42 + seed * 0.23 + k * 0.333) % 1.0
+                    local sy = Renderer3D.PEG_HEIGHT + 0.14 + phase * 1.65
+                    local sx = wx + phase * 0.68 + math.sin(phase * 4.5 + seed) * 0.08
+                    local sz = wz - phase * 0.28 + math.cos(phase * 3.8 + seed) * 0.07
+                    local rad = 0.12 + phase * 0.29
+                    local alpha = (1.0 - phase) * (0.28 + 0.22 * math.sin(phase * math.pi))
+                    if alpha > 0.01 then
+                        self:_drawMeshTransform(
+                            self.meshSphere,
+                            { sx, sy, sz },
+                            { rad, 0, 0 }, { 0, rad * 0.78, 0 }, { 0, 0, rad },
+                            { 0.56, 0.58, 0.60, alpha },
+                            { 0.03, 0.03, 0.035 },
+                            0.0, 0.0, 1.0, 0.0
+                        )
+                    end
+                end
+            end
+        end
+        love.graphics.setDepthMode("lequal", true)
+    end
+
     love.graphics.setShader()
     love.graphics.setDepthMode("always", false)
 
@@ -2322,8 +2418,9 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
     elseif previewType == "board_skin" then
         local bStyle = itemData.style or "wood"
         local isManh   = (bStyle == "manhattan")
+        local isChern  = (bStyle == "chernobyl")
         local mesh = (bStyle == "japanese_roof") and self.meshJapaneseRoof
-            or (isManh and self.meshBox)
+            or ((isManh or isChern) and self.meshBox)
             or ((itemData.isRound ~= false) and self.meshRoundBase or self.meshBox)
         local span = 1.45
         local isForest = (bStyle == "forest")
@@ -2332,7 +2429,14 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
         local isSnowy  = (bStyle == "snow" or bStyle == "snowy")
         local isJap    = (bStyle == "japanese_roof")
         local isCity   = (bStyle == "skyscraper" or isManh)
-        local matId    = isForest and 5.0 or (isMetal and 7.0 or (isCake and 8.0 or (isSnowy and 15.0 or (isJap and 13.0 or (isCity and 11.0 or 0.0)))))
+        local matId    = isForest and 5.0
+            or (isMetal and 7.0)
+            or (isCake and 8.0)
+            or (isSnowy and 15.0)
+            or (isJap and 13.0)
+            or (isCity and 11.0)
+            or (isChern and 20.0)
+            or 0.0
         drawPrev(
             mesh,
             { 0.0, -0.15, 0.0 },
@@ -2346,24 +2450,24 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
             1.2,
             matId
         )
-        -- Пара мини-столбиков сверху (или шпили с красными огоньками для Манхэттена)
+        -- Пара мини-столбиков сверху (или шпили с красными огоньками для Манхэттена / широкие трубы с дымом для ЧАЭС)
         local prevTime = love.timer.getTime()
         for pIdx, off in ipairs({ {-0.3, -0.3}, {0.3, -0.3}, {-0.3, 0.3}, {0.3, 0.3} }) do
             local rx = off[1] * ca - off[2] * sa
             local rz = off[1] * sa + off[2] * ca
-            local pegScale = isCity and 0.22 or 0.35
+            local pegScale = isCity and 0.22 or (isChern and 0.62 or 0.35)
             drawPrev(
                 self.meshPeg,
                 { rx, -0.02, rz },
                 { pegScale, 0, 0 },
-                { 0, isCity and 0.28 or 0.22, 0 },
+                { 0, isCity and 0.28 or (isChern and 0.32 or 0.22), 0 },
                 { 0, 0, pegScale },
                 itemData.pegColor,
                 { 0, 0, 0 },
                 (isMetal or isCity) and 0.90 or 0.3,
                 itemData.woodStrength or 0.9,
                 1.5,
-                isForest and 6.0 or ((isMetal or isCity) and 7.0 or (isCake and 9.0 or 0.0))
+                isForest and 6.0 or ((isMetal or isCity) and 7.0 or (isCake and 9.0 or (isChern and 21.0 or 0.0)))
             )
             if isManh and not isSil then
                 local bp = 0.20 + 0.80 * math.pow(0.5 + 0.5 * math.sin(prevTime * 1.1 + pIdx * 0.4), 1.6)
@@ -2375,6 +2479,19 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
                     { 1.2 * bp, 0.12 * bp, 0.08 * bp },
                     0.9, 0.0, 1.0, 12.0
                 )
+            elseif isChern and not isSil then
+                for sk = 0, 1 do
+                    local spPhase = (prevTime * 0.48 + pIdx * 0.27 + sk * 0.5) % 1.0
+                    local sRad = 0.10 + spPhase * 0.16
+                    drawPrev(
+                        self.meshSphere,
+                        { rx + spPhase * 0.22, 0.88 + spPhase * 0.55, rz },
+                        { sRad, 0, 0 }, { 0, sRad * 0.8, 0 }, { 0, 0, sRad },
+                        { 0.58, 0.60, 0.62, (1.0 - spPhase) * 0.42 },
+                        { 0.02, 0.02, 0.02 },
+                        0.0, 0.0, 1.0, 0.0
+                    )
+                end
             end
         end
     end

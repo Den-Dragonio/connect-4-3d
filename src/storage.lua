@@ -52,9 +52,11 @@ function Storage.save()
         Config.profile.ratingHistories = { std_bullet = { 800 }, std_blitz = { 800 }, free_bullet = { 800 }, free_blitz = { 800 } }
     end
 
+    local dp = Config.ensureDailyProgress and Config.ensureDailyProgress() or Config.dailyProgress
     local data = {
         lang               = I18N.current,
         coins              = savedCoins,
+        dailyProgress      = dp,
         adsRemoved         = Config.profile.isRegistered and Config.adsRemoved or false,
         boardShape         = Config.boardShape,
         activePieceSkin    = Config.activePieceSkin,
@@ -90,6 +92,16 @@ function Storage.load()
     end
     if type(data.coins) == "number" then
         Config.coins = data.coins
+    end
+    if type(data.dailyProgress) == "table" then
+        Config.dailyProgress = {
+            dateStr     = tostring(data.dailyProgress.dateStr or ""),
+            coinsEarned = tonumber(data.dailyProgress.coinsEarned) or 0,
+            pvpWins     = tonumber(data.dailyProgress.pvpWins) or 0
+        }
+    end
+    if Config.ensureDailyProgress then
+        Config.ensureDailyProgress()
     end
     if type(data.adsRemoved) == "boolean" then
         Config.adsRemoved = data.adsRemoved

@@ -93,6 +93,8 @@ local hoveredX, hoveredZ, hoveredY = nil, nil, nil
 local lastHoverMouseX, lastHoverMouseY = nil, nil
 local isReplayMode = false
 local replaySourceMatch = nil
+local shopSortMode = "rarity" -- "rarity" | "price_asc" | "price_desc"
+local lastCoinReward = nil
 local matchmakingState = { active = false, timer = 0, statsTimer = 0 }
 local activeTournamentMatch = nil
 local tournamentUI = {
@@ -476,6 +478,7 @@ local function startNewGame(mode, difficulty, lanRole, onlineRoom)
     activeDrop = nil
     botTimer = nil
     lastRatingDelta = 0
+    lastCoinReward = nil
     hideWinModal = false
     rematchState = { timer = 60.0, myAccepted = false, peerAccepted = false }
     matchStartTime = love.timer.getTime()
@@ -506,7 +509,7 @@ local function finalizeGameEnd()
     Sound.play("win")
     rematchState = { timer = 60.0, myAccepted = false, peerAccepted = false }
     local elapsedSec = math.max(1, math.floor(love.timer.getTime() - matchStartTime))
-    lastRatingDelta = Config.recordMatchResult(
+    lastRatingDelta, lastCoinReward = Config.recordMatchResult(
         Config.currentMode,
         gameLogic.winner,
         gameLogic.isDraw,
@@ -751,6 +754,48 @@ function love.load()
         assert(winRes and winRes.ok and gameLogic.isGameOver, "Expected vertical win in CI test")
         rematchState.timer = 45
         currentScreen = "game"
+        -- Проверка редкостей, сортировок магазина, Чернобыля и дневного лимита монет (100/день)
+        assert(Config.boardSkins.gold_ach.rarity == "super_rare", "Expected gold_ach super_rare")
+        assert(Config.boardSkins.sweet_cake.rarity == "epic", "Expected sweet_cake epic")
+        assert(Config.pieceSkins.nuclear_core.rarity == "epic", "Expected nuclear_core epic")
+        assert(Config.pieceSkins.pumpkin_halloween.rarity == "super_rare", "Expected pumpkin_halloween super_rare")
+        assert(Config.boardSkins.chernobyl and Config.boardSkins.chernobyl.rarity == "epic" and Config.boardSkins.chernobyl.forceSquare == true, "Expected Chernobyl epic square-only board")
+        assert(not string.find(I18N.t("board_obsidian"), "Скоро") and not string.find(I18N.t("board_obsidian"), "Soon"), "Expected no Soon tag on obsidian_stub")
+
+        local sortAsc = Config.getSortedOrder(Config.pieceSkinOrder, Config.pieceSkins, "price_asc")
+        local sortDesc = Config.getSortedOrder(Config.pieceSkinOrder, Config.pieceSkins, "price_desc")
+        assert(#sortAsc == #Config.pieceSkinOrder and #sortDesc == #Config.pieceSkinOrder, "Expected sorted order to retain all items")
+        assert((Config.pieceSkins[sortAsc[1]].price or 0) <= (Config.pieceSkins[sortAsc[7]].price or 0), "Expected ascending price order")
+        assert((Config.pieceSkins[sortDesc[1]].price or 0) >= (Config.pieceSkins[sortDesc[7]].price or 0), "Expected descending price order")
+
+        -- Дневной лимит монет: бот 1/2/5, PvP 10 (до 10 раз), общий потолок 100/день
+        Config.dailyProgress = { dateStr = "2099-01-01", coinsEarned = 0, pvpWins = 0 }
+        Config.ensureDailyProgress("2099-01-01")
+        local e1 = Config.earnDailyCoins(1, false, "2099-01-01"); assert(e1 == 1, "Expected 1 coin for easy bot")
+        local e2 = Config.earnDailyCoins(2, false, "2099-01-01"); assert(e2 == 2, "Expected 2 coins for medium bot")
+        local e3 = Config.earnDailyCoins(5, false, "2099-01-01"); assert(e3 == 5, "Expected 5 coins for hard bot")
+        local pTot = 8
+        for _ = 1, 12 do
+            local g = Config.earnDailyCoins(10, true, "2099-01-01")
+            pTot = pTot + g
+        end
+        assert(pTot == 100 and Config.dailyProgress.coinsEarned == 100, "Expected strict 100/day coin cap across all sources")
+        assert(Config.earnDailyCoins(5, false, "2099-01-01") == 0, "Expected 0 coins once daily limit reached")
+
+        -- Проверка рендера поля Чернобыль + дымящих труб (board + shop preview)
+        Config.activeBoardSkin = "chernobyl"
+        renderer:renderScene(800, 600, {
+            config = Config, logic = gameLogic, maxPly = #gameLogic.moveHistory,
+            clipOffsetX = 0.0, clipOffsetY = 0.04,
+            boardSkinOverride = Config.boardSkins.chernobyl
+        })
+        renderer:renderShopPreview(0, 0, 120, 120, 800, 600, "board_skin", {
+            isRound = false, style = "chernobyl",
+            baseColor = Config.boardSkins.chernobyl.baseColor,
+            pegColor = Config.boardSkins.chernobyl.pegColor,
+            woodStrength = Config.boardSkins.chernobyl.woodStrength
+        }, 0.5)
+
         for _, skinId in ipairs({ "pine_tree", "snowman", "iron_blocks", "skyscraper_blocks", "classic_bw" }) do
             assert(Config.pieceSkins[skinId] ~= nil, "Missing expected piece skin: " .. skinId)
             Config.activePieceSkin = skinId
@@ -760,9 +805,15 @@ function love.load()
             hideWinModal = true
             love.draw()
         end
-        shopTab = "themes"
-        currentScreen = "shop"
-        love.draw()
+        for _, tMode in ipairs({ "rarity", "price_asc", "price_desc" }) do
+            shopSortMode = tMode
+            for _, tTab in ipairs({ "pieces", "board", "themes" }) do
+                shopTab = tTab
+                currentScreen = "shop"
+                love.draw()
+            end
+        end
+        shopSortMode = "rarity"
         shopTab = "pieces"
         currentScreen = "settings_modal"
         love.draw()
@@ -3042,6 +3093,106 @@ local function getShopMaxScrollX(sw)
     return math.max(0, contentW - (sw or 1280))
 end
 
+local function getShopSortedIds(tabName)
+    if tabName == "pieces" then
+        return Config.getSortedOrder(Config.pieceSkinOrder, Config.pieceSkins, shopSortMode)
+    elseif tabName == "board" then
+        return Config.getSortedOrder(Config.boardSkinOrder, Config.boardSkins, shopSortMode)
+    elseif tabName == "themes" then
+        return Config.getSortedOrder(Config.uiThemeOrder, Config.uiThemes, shopSortMode)
+    end
+    return {}
+end
+
+local function drawShopRarityCardChrome(ui, cx, rowY, cardW, cardH, skin, subLabel, winCountOverride)
+    drawPanel(cx, rowY, cardW, cardH)
+    if skin.underRework then
+        love.graphics.setColor(0.12, 0.13, 0.16, 0.60)
+        love.graphics.rectangle("fill", cx + 2, rowY + 2, cardW - 4, cardH - 4, 14, 14)
+        love.graphics.setColor(0.38, 0.40, 0.46, 0.60)
+        love.graphics.setLineWidth(1.5)
+        love.graphics.rectangle("line", cx, rowY, cardW, cardH, 14, 14)
+    elseif skin.rarity == "legendary" then
+        love.graphics.setColor(0.95, 0.76, 0.14, 0.24)
+        love.graphics.rectangle("fill", cx + 2, rowY + 2, cardW - 4, cardH - 4, 14, 14)
+        love.graphics.setColor(0.98, 0.82, 0.22, 0.90)
+        love.graphics.setLineWidth(2)
+        love.graphics.rectangle("line", cx, rowY, cardW, cardH, 14, 14)
+    elseif skin.rarity == "epic" then
+        love.graphics.setColor(0.62, 0.24, 0.88, 0.24)
+        love.graphics.rectangle("fill", cx + 2, rowY + 2, cardW - 4, cardH - 4, 14, 14)
+        love.graphics.setColor(0.74, 0.36, 0.98, 0.90)
+        love.graphics.setLineWidth(2)
+        love.graphics.rectangle("line", cx, rowY, cardW, cardH, 14, 14)
+    elseif skin.rarity == "super_rare" then
+        love.graphics.setColor(0.14, 0.50, 0.94, 0.24)
+        love.graphics.rectangle("fill", cx + 2, rowY + 2, cardW - 4, cardH - 4, 14, 14)
+        love.graphics.setColor(0.24, 0.72, 1.00, 0.92)
+        love.graphics.setLineWidth(2)
+        love.graphics.rectangle("line", cx, rowY, cardW, cardH, 14, 14)
+    elseif skin.rarity == "rare" then
+        love.graphics.setColor(0.16, 0.70, 0.34, 0.20)
+        love.graphics.rectangle("fill", cx + 2, rowY + 2, cardW - 4, cardH - 4, 14, 14)
+        love.graphics.setColor(0.25, 0.88, 0.45, 0.90)
+        love.graphics.setLineWidth(2)
+        love.graphics.rectangle("line", cx, rowY, cardW, cardH, 14, 14)
+    end
+
+    local titleText = I18N.t(skin.nameKey)
+    local _, titleLines = fonts.btn:getWrap(titleText, cardW - 24)
+    local titleLineH = fonts.btn:getHeight()
+    local titleY = rowY + 10
+    love.graphics.setFont(fonts.btn)
+    if skin.underRework then
+        love.graphics.setColor(0.58, 0.62, 0.68, 1.0)
+    elseif skin.rarity == "legendary" then
+        love.graphics.setColor(1.00, 0.88, 0.35, 1.0)
+    elseif skin.rarity == "epic" then
+        love.graphics.setColor(0.85, 0.55, 1.00, 1.0)
+    elseif skin.rarity == "super_rare" then
+        love.graphics.setColor(0.45, 0.85, 1.00, 1.0)
+    elseif skin.rarity == "rare" then
+        love.graphics.setColor(0.40, 0.95, 0.55, 1.0)
+    else
+        love.graphics.setColor(ui.textMain)
+    end
+    love.graphics.printf(titleText, cx + 12, titleY, cardW - 24, "center")
+
+    local subY = titleY + math.max(1, #titleLines) * titleLineH + 2
+    local subText = subLabel
+    local subCol = ui.textSub
+    if skin.underRework then
+        subText = I18N.t("btn_rework")
+        subCol = { 0.85, 0.45, 0.35, 1.0 }
+    elseif skin.upgradeable then
+        local wCount = winCountOverride or 0
+        subText = I18N.t("skin_upgrade_hint", math.min(10, wCount))
+        subCol = { 0.98, 0.84, 0.28, 1.0 }
+    elseif skin.rarity == "legendary" then
+        subText = I18N.t("rarity_legendary")
+        subCol = { 0.98, 0.84, 0.28, 1.0 }
+    elseif skin.rarity == "epic" then
+        subText = I18N.t("rarity_epic")
+        subCol = { 0.78, 0.46, 0.98, 1.0 }
+    elseif skin.rarity == "super_rare" then
+        subText = I18N.t("rarity_super_rare")
+        subCol = { 0.38, 0.80, 1.00, 1.0 }
+    elseif skin.rarity == "rare" then
+        subText = I18N.t("rarity_rare")
+        subCol = { 0.35, 0.88, 0.50, 1.0 }
+    else
+        subText = I18N.t("rarity_common")
+        subCol = ui.textSub
+    end
+
+    local _, subLines = fonts.small:getWrap(subText, cardW - 20)
+    love.graphics.setFont(fonts.small)
+    love.graphics.setColor(subCol)
+    love.graphics.printf(subText, cx + 10, subY, cardW - 20, "center")
+    local contentTopY = subY + math.max(1, #subLines) * fonts.small:getHeight() + 6
+    return contentTopY
+end
+
 local function drawShopScreen(sw, sh)
     local ui = Config.getUITheme()
     local maxShopScroll = getShopMaxScrollX(sw)
@@ -3094,93 +3245,60 @@ local function drawShopScreen(sw, sh)
     love.graphics.setColor(ui.textMain)
     love.graphics.printf(I18N.t("coins_label", Config.coins), sw - 162, 29, 130, "center")
 
-    local availH = sh - 100
+    -- Кнопка сортировки в магазине (По редкости -> Дешёвые -> Дорогие)
+    local showSortBar = (shopTab == "pieces" or shopTab == "board" or shopTab == "themes")
+    if showSortBar then
+        local sortLabel = (shopSortMode == "price_asc") and I18N.t("shop_sort_cheap")
+            or ((shopSortMode == "price_desc") and I18N.t("shop_sort_expensive") or I18N.t("shop_sort_rarity"))
+        drawButton("shop_sort_btn", 64, 86, 250, 32, sortLabel, {
+            font = fonts.small,
+            active = (shopSortMode ~= "rarity"),
+            onClick = function()
+                Sound.play("click")
+                if shopSortMode == "rarity" then
+                    shopSortMode = "price_asc"
+                elseif shopSortMode == "price_asc" then
+                    shopSortMode = "price_desc"
+                else
+                    shopSortMode = "price_asc"
+                end
+                shopScrollX = 0
+                shopTargetScrollX = 0
+            end
+        })
+    end
+
+    local topBarOffset = showSortBar and 126 or 100
+    local availH = sh - topBarOffset
     local cardW = 260
-    local cardH = math.floor(math.min(415, availH - 24))
+    local cardH = math.floor(math.min(410, availH - 18))
     local cardGap = 26
-    local rowY = math.floor(92 + math.max(0, (availH - cardH - 20) * 0.5))
+    local rowY = math.floor((showSortBar and 122 or 92) + math.max(0, (availH - cardH - 14) * 0.5))
     local prevH = math.floor(cardH - 165)
     local prevY = rowY + 54
     local btnY = rowY + cardH - 58
     local btnH = 44
 
     if shopTab == "pieces" then
-        for i, skinId in ipairs(Config.pieceSkinOrder) do
+        local orderedPieces = getShopSortedIds("pieces")
+        for i, skinId in ipairs(orderedPieces) do
             local skin = Config.pieceSkins[skinId]
             if skin then
                 local cx = 64 + (i - 1) * (cardW + cardGap) - shopScrollX
                 if cx + cardW >= -20 and cx <= sw + 20 then
-                    drawPanel(cx, rowY, cardW, cardH)
-                    if skin.underRework then
-                        love.graphics.setColor(0.12, 0.13, 0.16, 0.60)
-                        love.graphics.rectangle("fill", cx + 2, rowY + 2, cardW - 4, cardH - 4, 14, 14)
-                        love.graphics.setColor(0.38, 0.40, 0.46, 0.60)
-                        love.graphics.setLineWidth(1.5)
-                        love.graphics.rectangle("line", cx, rowY, cardW, cardH, 14, 14)
-                    elseif skin.rarity == "legendary" then
-                        love.graphics.setColor(0.95, 0.76, 0.14, 0.24)
-                        love.graphics.rectangle("fill", cx + 2, rowY + 2, cardW - 4, cardH - 4, 14, 14)
-                        love.graphics.setColor(0.98, 0.82, 0.22, 0.90)
-                        love.graphics.setLineWidth(2)
-                        love.graphics.rectangle("line", cx, rowY, cardW, cardH, 14, 14)
-                    elseif skin.rarity == "epic" then
-                        love.graphics.setColor(0.62, 0.24, 0.88, 0.24)
-                        love.graphics.rectangle("fill", cx + 2, rowY + 2, cardW - 4, cardH - 4, 14, 14)
-                        love.graphics.setColor(0.74, 0.36, 0.98, 0.90)
-                        love.graphics.setLineWidth(2)
-                        love.graphics.rectangle("line", cx, rowY, cardW, cardH, 14, 14)
-                    elseif skin.rarity == "rare" then
-                        love.graphics.setColor(0.16, 0.70, 0.34, 0.20)
-                        love.graphics.rectangle("fill", cx + 2, rowY + 2, cardW - 4, cardH - 4, 14, 14)
-                        love.graphics.setColor(0.25, 0.88, 0.45, 0.90)
-                        love.graphics.setLineWidth(2)
-                        love.graphics.rectangle("line", cx, rowY, cardW, cardH, 14, 14)
-                    end
-
-                    love.graphics.setFont(fonts.btn)
-                    if skin.underRework then
-                        love.graphics.setColor(0.58, 0.62, 0.68, 1.0)
-                    elseif skin.rarity == "legendary" then
-                        love.graphics.setColor(1.00, 0.88, 0.35, 1.0)
-                    elseif skin.rarity == "epic" then
-                        love.graphics.setColor(0.85, 0.55, 1.00, 1.0)
-                    elseif skin.rarity == "rare" then
-                        love.graphics.setColor(0.40, 0.95, 0.55, 1.0)
-                    else
-                        love.graphics.setColor(ui.textMain)
-                    end
-                    love.graphics.printf(I18N.t(skin.nameKey), cx + 12, rowY + 12, cardW - 24, "center")
-
-                    love.graphics.setFont(fonts.small)
-                    if skin.underRework then
-                        love.graphics.setColor(0.85, 0.45, 0.35, 1.0)
-                        love.graphics.printf(I18N.t("btn_rework"), cx + 10, rowY + 34, cardW - 20, "center")
-                    elseif skin.upgradeable then
-                        local wCount = (Config.skinWins and Config.skinWins[skinId]) or 0
-                        love.graphics.setColor(0.98, 0.84, 0.28, 1.0)
-                        love.graphics.printf(I18N.t("skin_upgrade_hint", math.min(10, wCount)), cx + 10, rowY + 34, cardW - 20, "center")
-                    elseif skin.rarity == "legendary" then
-                        love.graphics.setColor(0.98, 0.84, 0.28, 1.0)
-                        love.graphics.printf(I18N.t("rarity_legendary"), cx + 10, rowY + 34, cardW - 20, "center")
-                    elseif skin.rarity == "epic" then
-                        love.graphics.setColor(0.78, 0.46, 0.98, 1.0)
-                        love.graphics.printf(I18N.t("rarity_epic"), cx + 10, rowY + 34, cardW - 20, "center")
-                    elseif skin.rarity == "rare" then
-                        love.graphics.setColor(0.35, 0.88, 0.50, 1.0)
-                        love.graphics.printf(I18N.t("rarity_rare"), cx + 10, rowY + 34, cardW - 20, "center")
-                    else
-                        love.graphics.setColor(ui.textSub)
-                        love.graphics.printf(I18N.t("rarity_common"), cx + 10, rowY + 34, cardW - 20, "center")
-                    end
+                    local wCount = (Config.skinWins and Config.skinWins[skinId]) or 0
+                    local contentTopY = drawShopRarityCardChrome(ui, cx, rowY, cardW, cardH, skin, nil, wCount)
 
                     local isClosed = (skin.underRework == true) or (not skin.unlocked and skin.unlockType == "ach")
                     local prevX, prevW = cx + 18, cardW - 36
+                    local cardPrevY = math.max(prevY, contentTopY)
+                    local cardPrevH = math.max(90, btnY - cardPrevY - 12)
                     if isClosed then
                         love.graphics.setColor(math.max(0.16, ui.bgClear[1]), math.max(0.17, ui.bgClear[2]), math.max(0.21, ui.bgClear[3]), 1.0)
                     else
                         love.graphics.setColor(ui.bgClear)
                     end
-                    love.graphics.rectangle("fill", prevX, prevY, prevW, prevH, 10, 10)
+                    love.graphics.rectangle("fill", prevX, cardPrevY, prevW, cardPrevH, 10, 10)
                     local prevItem = skin
                     if isClosed then
                         prevItem = {
@@ -3195,7 +3313,7 @@ local function drawShopScreen(sw, sh)
                         }
                     end
                     renderer:renderShopPreview(
-                        prevX, prevY, prevW, prevH, sw, sh, "pieces",
+                        prevX, cardPrevY, prevW, cardPrevH, sw, sh, "pieces",
                         prevItem, isClosed and 0.45 or (shopSpinAngle + i * 0.5)
                     )
 
@@ -3316,84 +3434,29 @@ local function drawShopScreen(sw, sh)
             }
         )
 
-        for idx, bSkinId in ipairs(Config.boardSkinOrder) do
+        local orderedBoards = getShopSortedIds("board")
+        for idx, bSkinId in ipairs(orderedBoards) do
             local bSkin = Config.boardSkins[bSkinId]
             if bSkin then
                 local cx = 64 + idx * (cardW + cardGap) - shopScrollX
                 if cx + cardW >= -20 and cx <= sw + 20 then
-                    drawPanel(cx, rowY, cardW, cardH)
-
-                    if bSkin.underRework then
-                        love.graphics.setColor(0.12, 0.13, 0.16, 0.60)
-                        love.graphics.rectangle("fill", cx + 2, rowY + 2, cardW - 4, cardH - 4, 14, 14)
-                        love.graphics.setColor(0.38, 0.40, 0.46, 0.60)
-                        love.graphics.setLineWidth(1.5)
-                        love.graphics.rectangle("line", cx, rowY, cardW, cardH, 14, 14)
-                    elseif bSkin.rarity == "legendary" then
-                        love.graphics.setColor(0.95, 0.76, 0.14, 0.24)
-                        love.graphics.rectangle("fill", cx + 2, rowY + 2, cardW - 4, cardH - 4, 14, 14)
-                        love.graphics.setColor(0.98, 0.82, 0.22, 0.90)
-                        love.graphics.setLineWidth(2)
-                        love.graphics.rectangle("line", cx, rowY, cardW, cardH, 14, 14)
-                    elseif bSkin.rarity == "epic" then
-                        love.graphics.setColor(0.62, 0.24, 0.88, 0.24)
-                        love.graphics.rectangle("fill", cx + 2, rowY + 2, cardW - 4, cardH - 4, 14, 14)
-                        love.graphics.setColor(0.74, 0.36, 0.98, 0.90)
-                        love.graphics.setLineWidth(2)
-                        love.graphics.rectangle("line", cx, rowY, cardW, cardH, 14, 14)
-                    elseif bSkin.rarity == "rare" then
-                        love.graphics.setColor(0.16, 0.70, 0.34, 0.20)
-                        love.graphics.rectangle("fill", cx + 2, rowY + 2, cardW - 4, cardH - 4, 14, 14)
-                        love.graphics.setColor(0.25, 0.88, 0.45, 0.90)
-                        love.graphics.setLineWidth(2)
-                        love.graphics.rectangle("line", cx, rowY, cardW, cardH, 14, 14)
-                    end
-
-                    love.graphics.setFont(fonts.btn)
-                    if bSkin.underRework then
-                        love.graphics.setColor(0.58, 0.62, 0.68, 1.0)
-                    elseif bSkin.rarity == "legendary" then
-                        love.graphics.setColor(1.00, 0.88, 0.35, 1.0)
-                    elseif bSkin.rarity == "epic" then
-                        love.graphics.setColor(0.85, 0.55, 1.00, 1.0)
-                    elseif bSkin.rarity == "rare" then
-                        love.graphics.setColor(0.40, 0.95, 0.55, 1.0)
-                    else
-                        love.graphics.setColor(ui.textMain)
-                    end
-                    love.graphics.printf(I18N.t(bSkin.nameKey), cx + 12, rowY + 12, cardW - 24, "center")
-
-                    love.graphics.setFont(fonts.small)
-                    if bSkin.underRework then
-                        love.graphics.setColor(0.85, 0.45, 0.35, 1.0)
-                        love.graphics.printf(I18N.t("btn_rework"), cx + 10, rowY + 34, cardW - 20, "center")
-                    elseif bSkin.upgradeable then
-                        local prof = Config.profile or {}
-                        local wCount = (prof.boardWins and prof.boardWins[bSkinId])
-                                    or (prof.skinWins and prof.skinWins[bSkinId]) or 0
-                        love.graphics.setColor(0.98, 0.84, 0.28, 1.0)
-                        love.graphics.printf(I18N.t("skin_upgrade_hint", math.min(10, wCount)), cx + 10, rowY + 34, cardW - 20, "center")
-                    elseif bSkin.rarity == "legendary" then
-                        love.graphics.setColor(0.98, 0.84, 0.28, 1.0)
-                        love.graphics.printf(I18N.t("rarity_legendary"), cx + 10, rowY + 34, cardW - 20, "center")
-                    elseif bSkin.rarity == "rare" then
-                        love.graphics.setColor(0.35, 0.88, 0.50, 1.0)
-                        love.graphics.printf(I18N.t("rarity_rare"), cx + 10, rowY + 34, cardW - 20, "center")
-                    else
-                        love.graphics.setColor(ui.textSub)
-                        love.graphics.printf(I18N.t("rarity_common"), cx + 10, rowY + 34, cardW - 20, "center")
-                    end
+                    local prof = Config.profile or {}
+                    local wCount = (prof.boardWins and prof.boardWins[bSkinId])
+                                or (prof.skinWins and prof.skinWins[bSkinId]) or 0
+                    local contentTopY = drawShopRarityCardChrome(ui, cx, rowY, cardW, cardH, bSkin, nil, wCount)
 
                     local isClosed = (bSkin.underRework == true) or (not bSkin.unlocked and bSkin.unlockType == "ach")
                     local prevX, prevW = cx + 18, cardW - 36
+                    local cardPrevY = math.max(prevY, contentTopY)
+                    local cardPrevH = math.max(90, btnY - cardPrevY - 12)
                     if isClosed then
                         love.graphics.setColor(math.max(0.16, ui.bgClear[1]), math.max(0.17, ui.bgClear[2]), math.max(0.21, ui.bgClear[3]), 1.0)
                     else
                         love.graphics.setColor(ui.bgClear)
                     end
-                    love.graphics.rectangle("fill", prevX, prevY, prevW, prevH, 10, 10)
-                    renderer:renderShopPreview(prevX, prevY, prevW, prevH, sw, sh, "board_skin", {
-                        isRound = (Config.boardShape == "round"),
+                    love.graphics.rectangle("fill", prevX, cardPrevY, prevW, cardPrevH, 10, 10)
+                    renderer:renderShopPreview(prevX, cardPrevY, prevW, cardPrevH, sw, sh, "board_skin", {
+                        isRound = (Config.boardShape == "round") and (not bSkin.forceSquare),
                         style = bSkin.style,
                         baseColor = bSkin.baseColor,
                         pegColor = bSkin.pegColor,
@@ -3454,7 +3517,8 @@ local function drawShopScreen(sw, sh)
         end
 
     elseif shopTab == "themes" then
-        for i, themeId in ipairs(Config.uiThemeOrder) do
+        local orderedThemes = getShopSortedIds("themes")
+        for i, themeId in ipairs(orderedThemes) do
             local th = Config.uiThemes[themeId]
             local cx = 64 + (i - 1) * (cardW + cardGap) - shopScrollX
             if cx + cardW >= -20 and cx <= sw + 20 then
@@ -3607,7 +3671,7 @@ local function drawShopScreen(sw, sh)
                     if not Config.adsRemoved then
                         Sound.play("win")
                         Config.adsRemoved = true
-                        Config.coins = Config.coins + 50
+                        Config.earnDailyCoins(50, false)
                         Storage.save()
                     end
                 end
@@ -3779,7 +3843,7 @@ local function drawCleanGameHUD(sw, sh)
             love.graphics.setColor(0.05, 0.05, 0.06, 0.62)
             love.graphics.rectangle("fill", 0, 0, sw, sh)
 
-            local pw, ph = 520, 276
+            local pw, ph = 520, 316
             local px, py = (sw - pw) * 0.5, (sh - ph) * 0.5
             drawPanel(px, py, pw, ph)
 
@@ -3809,25 +3873,59 @@ local function drawCleanGameHUD(sw, sh)
                 subText = I18N.t(gameLogic.winningLineType)
             end
 
-            love.graphics.printf(titleText, px + 48, py + 24, pw - 96, "center")
+            love.graphics.printf(titleText, px + 48, py + 22, pw - 96, "center")
 
             love.graphics.setFont(fonts.body)
             love.graphics.setColor(ui.textSub)
-            love.graphics.printf(subText, px + 28, py + 68, pw - 56, "center")
+            love.graphics.printf(subText, px + 28, py + 62, pw - 56, "center")
 
             if lastRatingDelta ~= 0 then
                 local sign = (lastRatingDelta > 0) and "+" or ""
                 love.graphics.setFont(fonts.btn)
                 love.graphics.setColor(ui.accentText)
-                love.graphics.printf(I18N.t("rating_change", Config.profile.rating, sign), px, py + 106, pw, "center")
+                love.graphics.printf(I18N.t("rating_change", Config.profile.rating, sign), px, py + 92, pw, "center")
+            end
+
+            -- Прогресс дневного лимита монет (макс. 100 в день)
+            do
+                local dp = Config.ensureDailyProgress()
+                local dTotal = (lastCoinReward and lastCoinReward.dailyTotal) or dp.coinsEarned or 0
+                local dCap   = (lastCoinReward and lastCoinReward.dailyCap) or Config.DAILY_COIN_LIMIT or 100
+                local earned = (lastCoinReward and lastCoinReward.earned) or 0
+                local coinMsg
+                if earned > 0 then
+                    coinMsg = I18N.t("daily_coins_earned", earned, dTotal, dCap)
+                elseif dTotal >= dCap then
+                    coinMsg = I18N.t("daily_coins_cap_reached")
+                else
+                    coinMsg = I18N.t("daily_coins_status", dTotal, dCap)
+                end
+                local cY = py + 122
+                love.graphics.setFont(fonts.small)
+                love.graphics.setColor(earned > 0 and { 0.98, 0.84, 0.28, 1.0 } or ui.textMain)
+                love.graphics.printf(coinMsg, px + 28, cY, pw - 56, "center")
+
+                local barW = pw - 160
+                local barX = px + 80
+                local barY = cY + 24
+                local barH = 10
+                local ratio = math.max(0, math.min(1, dTotal / math.max(1, dCap)))
+                love.graphics.setColor(0.08, 0.09, 0.12, 0.72)
+                love.graphics.rectangle("fill", barX, barY, barW, barH, 5, 5)
+                if ratio > 0 then
+                    love.graphics.setColor(0.96, 0.78, 0.22, 1.0)
+                    love.graphics.rectangle("fill", barX, barY, math.max(8, barW * ratio), barH, 5, 5)
+                end
+                love.graphics.setColor(ui.panelBorder)
+                love.graphics.rectangle("line", barX, barY, barW, barH, 5, 5)
             end
 
             love.graphics.setFont(fonts.small)
             love.graphics.setColor(ui.textSub)
-            love.graphics.printf(I18N.t("inspect_board_hint"), px + 20, py + 144, pw - 40, "center")
+            love.graphics.printf(I18N.t("inspect_board_hint"), px + 20, py + 180, pw - 40, "center")
             table.insert(uiButtons, {
                 id = "win_inspect_toggle",
-                x = px + 20, y = py + 136, w = pw - 40, h = 38,
+                x = px + 20, y = py + 174, w = pw - 40, h = 38,
                 onClick = function()
                     Sound.play("click")
                     hideWinModal = true

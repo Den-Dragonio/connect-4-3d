@@ -92,6 +92,12 @@ local Config = {
     },
 
     coins = 100,
+    DAILY_COIN_LIMIT = 100,
+    dailyProgress = {
+        dateStr     = os.date("%Y-%m-%d"),
+        coinsEarned = 0,
+        pvpWins     = 0
+    },
     adsRemoved = false,
 
     boardShape = "round",
@@ -292,18 +298,18 @@ local Config = {
         "classic_bw",
         "crimson_cobalt",
         "emerald_gold",
+        "neon_ad",
+        "ivory_ach",
         "gold_silver_rings",
         "iron_blocks",
-        "nuclear_core",
         "pumpkin_halloween",
+        "nuclear_core",
         "glazed_donuts",
         "skyscraper_blocks",
         "pine_tree",
         "snowman",
         "thin_rings",
-        "amber_obsidian",
-        "neon_ad",
-        "ivory_ach"
+        "amber_obsidian"
     },
 
     pieceSkins = {
@@ -376,7 +382,7 @@ local Config = {
             id = "nuclear_core",
             nameKey = "skin_nuclear",
             style = "nuclear",
-            rarity = "rare",
+            rarity = "epic",
             player1Color = { 0.28, 1.00, 0.22, 1.0 }, -- Uranium-235 (glowing & pulsing radiation)
             player2Color = { 0.21, 0.23, 0.26, 1.0 }, -- Reactor Graphite (dark carbon moderator)
             woodStrength = 0.45,
@@ -389,7 +395,7 @@ local Config = {
             id = "pumpkin_halloween",
             nameKey = "skin_pumpkin",
             style = "pumpkin",
-            rarity = "rare",
+            rarity = "super_rare",
             player1Color = { 0.96, 0.44, 0.08, 1.0 }, -- Classic Jack-o-Lantern Orange
             player2Color = { 0.34, 0.18, 0.46, 1.0 }, -- Midnight Witch Pumpkin
             woodStrength = 0.35,
@@ -505,11 +511,12 @@ local Config = {
         "dark_wood",
         "white_wood",
         "metal_steel",
+        "obsidian_stub",
+        "snowy_winter",
         "gold_ach",
         "sweet_cake",
-        "snowy_winter",
+        "chernobyl",
         "forest_glade",
-        "obsidian_stub",
         "manhattan",
         "japanese_roof",
         "skyscraper"
@@ -563,7 +570,7 @@ local Config = {
             nameKey = "board_gold",
             style = "metal",
             soundType = "metal",
-            rarity = "rare",
+            rarity = "super_rare",
             baseColor = { 0.96, 0.80, 0.22, 1.0 }, -- Чистое сияющее золото 24K
             pegColor  = { 0.98, 0.86, 0.36, 1.0 }, -- Золотые полированные штыри
             pegHover  = { 1.00, 0.96, 0.65, 1.0 },
@@ -576,7 +583,7 @@ local Config = {
             id = "sweet_cake",
             nameKey = "board_cake",
             style = "cake",
-            rarity = "rare",
+            rarity = "epic",
             soundType = "cake",
             baseColor = { 0.96, 0.74, 0.82, 1.0 }, -- Strawberry-vanilla cake frosting & sponge layers
             pegColor  = { 0.84, 0.60, 0.34, 1.0 }, -- Crispy chocolate-striped wafer roll sticks
@@ -585,6 +592,21 @@ local Config = {
             unlocked = false,
             unlockType = "coins",
             price = 400
+        },
+        chernobyl = {
+            id = "chernobyl",
+            nameKey = "board_chernobyl",
+            style = "chernobyl",
+            rarity = "epic",
+            soundType = "metal",
+            forceSquare = true,
+            baseColor = { 0.31, 0.33, 0.35, 1.0 }, -- Weathered Chernobyl Unit 4 concrete roof
+            pegColor  = { 0.48, 0.50, 0.52, 1.0 }, -- Wide industrial smoking chimneys
+            pegHover  = { 0.98, 0.80, 0.16, 1.0 },
+            woodStrength = 0.06,
+            unlocked = false,
+            unlockType = "coins",
+            price = 600
         },
         snowy_winter = {
             id = "snowy_winter",
@@ -997,16 +1019,101 @@ function Config.logoutAccount()
     }
 end
 
+Config.RARITY_RANK = {
+    common     = 1,
+    rare       = 2,
+    super_rare = 3,
+    epic       = 4,
+    legendary  = 5
+}
+
+function Config.getSortedOrder(orderList, lookupMap, sortMode)
+    local out = {}
+    local idxMap = {}
+    for i, id in ipairs(orderList) do
+        table.insert(out, id)
+        idxMap[id] = i
+    end
+    if not sortMode or sortMode == "rarity" then
+        table.sort(out, function(a, b)
+            local sa, sb = lookupMap[a], lookupMap[b]
+            local ra = (sa and sa.underRework) and 99 or (Config.RARITY_RANK[sa and sa.rarity or "common"] or 1)
+            local rb = (sb and sb.underRework) and 99 or (Config.RARITY_RANK[sb and sb.rarity or "common"] or 1)
+            if ra ~= rb then return ra < rb end
+            return (idxMap[a] or 0) < (idxMap[b] or 0)
+        end)
+    elseif sortMode == "price_asc" or sortMode == "price_desc" then
+        local isAsc = (sortMode == "price_asc")
+        table.sort(out, function(a, b)
+            local sa, sb = lookupMap[a], lookupMap[b]
+            local wa = (sa and sa.underRework) and 1 or 0
+            local wb = (sb and sb.underRework) and 1 or 0
+            if wa ~= wb then return wa < wb end
+            local pa = (sa and sa.price) or 0
+            local pb = (sb and sb.price) or 0
+            if pa ~= pb then
+                if isAsc then return pa < pb else return pa > pb end
+            end
+            local ra = Config.RARITY_RANK[sa and sa.rarity or "common"] or 1
+            local rb = Config.RARITY_RANK[sb and sb.rarity or "common"] or 1
+            if ra ~= rb then return ra < rb end
+            return (idxMap[a] or 0) < (idxMap[b] or 0)
+        end)
+    end
+    return out
+end
+
+function Config.ensureDailyProgress(todayOverride)
+    local today = todayOverride or os.date("%Y-%m-%d")
+    if type(Config.dailyProgress) ~= "table" or Config.dailyProgress.dateStr ~= today then
+        Config.dailyProgress = {
+            dateStr     = today,
+            coinsEarned = 0,
+            pvpWins     = 0
+        }
+    end
+    Config.dailyProgress.coinsEarned = math.max(0, math.floor(Config.dailyProgress.coinsEarned or 0))
+    Config.dailyProgress.pvpWins     = math.max(0, math.floor(Config.dailyProgress.pvpWins or 0))
+    return Config.dailyProgress
+end
+
+function Config.earnDailyCoins(requestedAmount, isPvpWin, todayOverride)
+    local dp = Config.ensureDailyProgress(todayOverride)
+    local cap = Config.DAILY_COIN_LIMIT or 100
+    local remaining = math.max(0, cap - dp.coinsEarned)
+    local amount = math.max(0, math.floor(requestedAmount or 0))
+    if isPvpWin then
+        if dp.pvpWins >= 10 then
+            amount = 0
+        else
+            dp.pvpWins = dp.pvpWins + 1
+        end
+    end
+    local granted = math.min(amount, remaining)
+    if granted > 0 then
+        Config.coins = Config.coins + granted
+        dp.coinsEarned = dp.coinsEarned + granted
+    end
+    return granted, dp.coinsEarned, cap
+end
+
 function Config.recordMatchResult(mode, winnerPlayer, isDraw, lineTypeKey, totalHalfMoves, durationSec, moveHistoryCopy, opponentName)
     local p = Config.profile
     Config.ensureProfileFields(p)
+    local dp = Config.ensureDailyProgress()
     p.gamesPlayed = p.gamesPlayed + 1
 
     -- Determine whether the human/primary player won
-    local trackedPlayer = ((mode == Config.GameMode.VS_BOT or mode == Config.GameMode.LAN) and Config.humanPlayer) or 1
+    local trackedPlayer = ((mode == Config.GameMode.VS_BOT or mode == Config.GameMode.LAN or mode == Config.GameMode.ONLINE) and Config.humanPlayer) or 1
     local playerWon = (not isDraw) and (winnerPlayer == trackedPlayer)
 
     local deltaRating = 0
+    local coinRewardInfo = {
+        earned     = 0,
+        dailyTotal = dp.coinsEarned,
+        dailyCap   = Config.DAILY_COIN_LIMIT or 100,
+        pvpWins    = dp.pvpWins
+    }
     local resKey = "res_draw"
     local eloKey = Config.getEloKey(Config.ruleMode, Config.onlineTimeMinutes)
 
@@ -1017,6 +1124,21 @@ function Config.recordMatchResult(mode, winnerPlayer, isDraw, lineTypeKey, total
     elseif playerWon then
         p.wins = p.wins + 1
         p.winStreak = (p.winStreak or 0) + 1
+
+        -- Начисление монет за победу (строго до дневного лимита 100 монет из любых источников)
+        if mode == Config.GameMode.VS_BOT then
+            local botReward = (Config.botDifficulty == 3 and 5) or (Config.botDifficulty == 2 and 2) or 1
+            local earned, dTotal, dCap = Config.earnDailyCoins(botReward, false)
+            coinRewardInfo.earned = earned
+            coinRewardInfo.dailyTotal = dTotal
+            coinRewardInfo.dailyCap = dCap
+        else
+            local earned, dTotal, dCap = Config.earnDailyCoins(10, true)
+            coinRewardInfo.earned = earned
+            coinRewardInfo.dailyTotal = dTotal
+            coinRewardInfo.dailyCap = dCap
+        end
+        coinRewardInfo.pvpWins = dp.pvpWins
 
         -- Achievements & Skin wins are ONLY recorded for registered accounts (Guest achievements do NOT count!)
         if p.isRegistered then
@@ -1103,7 +1225,7 @@ function Config.recordMatchResult(mode, winnerPlayer, isDraw, lineTypeKey, total
         FirebaseClient.syncProfile(p.username, p)
     end
 
-    return deltaRating
+    return deltaRating, coinRewardInfo
 end
 
 function Config.recordTournamentWin(tournamentData)

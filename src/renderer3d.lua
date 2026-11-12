@@ -75,8 +75,9 @@ local SHADER_PIXEL = [[
     uniform float u_specular;
     uniform float u_woodStrength;
     uniform float u_woodScale;
-    uniform float u_materialType; // 0=wood, 1=donut, 2=pine, 3=uranium, 4=graphite, 5=forest_grass, 6=tree_bark
+    uniform float u_materialType; // 0=wood, 1=donut, 2=pine, 3=uranium, 4=graphite, 5=forest_grass, 6=tree_bark, ..., 18=manhattan_clouds
     uniform LOVE_HIGHP_OR_MEDIUMP float u_time;
+    uniform LOVE_HIGHP_OR_MEDIUMP float u_cloudTime;
 
     varying LOVE_HIGHP_OR_MEDIUMP vec3 v_worldPos;
     varying LOVE_HIGHP_OR_MEDIUMP vec3 v_localPos;
@@ -134,6 +135,7 @@ local SHADER_PIXEL = [[
         vec3 surfaceAlbedo = mix(u_baseColor.rgb, mix(darkGrain, lightGrain, grain), u_woodStrength);
         float specFactor = u_specular * mix(1.0, 0.6 + 0.6 * grain, u_woodStrength);
         vec3 extraGlow = vec3(0.0);
+        float outAlpha = u_baseColor.a;
 
         if (u_materialType > 0.5 && u_materialType < 1.5) {
             // 1: Пончик с глазурью (Glazed Donut)
@@ -275,7 +277,9 @@ local SHADER_PIXEL = [[
             surfaceAlbedo = mix(u_baseColor.rgb * 0.90, u_baseColor.rgb * 1.08, grain) + vec3(sparkle * 0.22);
             specFactor = 0.45 + sparkle * 0.4;
         } else if (u_materialType > 10.5 && u_materialType < 11.5) {
-            // 11: Реалистичные небоскрёбы Манхэттена (остекление, стальные колонны, перекрытия, тёплые и холодные окна)
+            // 11: Реалистичные небоскрёбы Манхэттена (остекление, стальные колонны, перекрытия, тёплые и холодные окна + уход в ночные тучи)
+            float lowMist = smoothstep(-0.75, -3.40, v_worldPos.y);
+            float winFade = 1.0 - smoothstep(-0.95, -2.65, v_worldPos.y);
             if (N.y > 0.5) {
                 float roofTex = woodNoise3(v_worldPos * 7.0);
                 float edgeRim = step(0.42, max(abs(v_localPos.x), abs(v_localPos.z)));
@@ -292,7 +296,7 @@ local SHADER_PIXEL = [[
                 vec3 cellId = floor(vec3(cols, rows, v_worldPos.x * 3.1 + v_worldPos.z * 5.7));
                 float litRand = woodHash3(cellId);
                 float roomGlow = smoothstep(0.36, 0.92, litRand) * step(0.38, litRand);
-                float isLit = roomGlow * winPane * (1.0 - cornerPier);
+                float isLit = roomGlow * winPane * (1.0 - cornerPier) * winFade;
                 vec3 glassCol = mix(vec3(0.04, 0.06, 0.11), vec3(0.10, 0.15, 0.24), N.y * 0.5 + 0.5);
                 vec3 winTint = (litRand > 0.82) ? vec3(0.70, 0.88, 1.00) : mix(vec3(1.00, 0.78, 0.36), vec3(1.00, 0.90, 0.62), fract(litRand * 13.0));
                 surfaceAlbedo = mix(glassCol, vec3(0.05, 0.06, 0.09), cornerPier);
@@ -300,6 +304,11 @@ local SHADER_PIXEL = [[
                 extraGlow += winTint * isLit * 0.68;
                 specFactor = mix(0.86, 0.18, isLit);
             }
+            vec3 nightHazeCol = vec3(0.045, 0.062, 0.120);
+            surfaceAlbedo = mix(surfaceAlbedo, nightHazeCol, lowMist * 0.92);
+            extraGlow *= (1.0 - lowMist * 0.95);
+            specFactor *= (1.0 - lowMist);
+            outAlpha *= (1.0 - smoothstep(-3.3, -7.8, v_worldPos.y));
         } else if (u_materialType > 11.5 && u_materialType < 12.5) {
             // 12: Авиационный красный маячок на вершинах шпилей (плавное медленное дыхание света)
             float pulse = pow(0.5 + 0.5 * sin(u_time * 1.15), 1.5);
@@ -367,6 +376,23 @@ local SHADER_PIXEL = [[
             surfaceAlbedo = mix(u_baseColor.rgb, vec3(0.35, 0.92, 1.0), shimmer * 0.45);
             extraGlow += surfaceAlbedo * 0.28;
             specFactor = 0.85;
+        } else if (u_materialType > 17.5 && u_materialType < 18.5) {
+            // 18: Ночные облака и густой туман Манхэттена (единственная анимация в главном меню)
+            vec3 cp1 = vec3(v_worldPos.x * 0.36 + u_cloudTime * 0.22, v_worldPos.y * 0.72, v_worldPos.z * 0.36 + u_cloudTime * 0.11);
+            vec3 cp2 = vec3(v_worldPos.x * 0.82 - u_cloudTime * 0.14, v_worldPos.y * 1.18, v_worldPos.z * 0.82 + u_cloudTime * 0.17);
+            float cNoise = woodNoise3(cp1) * 0.65 + woodNoise3(cp2) * 0.35;
+            float radial = clamp(length(v_worldPos.xz) / 11.0, 0.0, 1.0);
+            float edgeFade = (abs(N.y) > 0.65)
+                ? smoothstep(1.0, 0.25, radial)
+                : pow(clamp(abs(dot(N, V)), 0.0, 1.0), 0.72);
+            float cloudDensity = smoothstep(0.18, 0.78, cNoise) * edgeFade;
+            vec3 cloudLow  = vec3(0.05, 0.07, 0.14);
+            vec3 cloudHigh = vec3(0.24, 0.32, 0.50);
+            float cityWarm = smoothstep(5.5, 0.6, length(v_worldPos.xz)) * 0.28;
+            vec3 cloudCol = mix(cloudLow, cloudHigh, smoothstep(0.28, 0.78, cNoise) * 0.70 + (N.y * 0.5 + 0.5) * 0.30);
+            cloudCol += vec3(0.34, 0.26, 0.16) * cityWarm * (0.40 + 0.60 * cNoise);
+            outAlpha = clamp(u_baseColor.a * (0.28 + 0.78 * cloudDensity), 0.0, 1.0);
+            return vec4(cloudCol + u_emissive * 0.45, outAlpha);
         }
 
         vec3 L1 = normalize(vec3(0.55, 0.78, 0.48));
@@ -389,7 +415,7 @@ local SHADER_PIXEL = [[
                       + extraGlow
                       + u_emissive;
 
-        return vec4(litColor, u_baseColor.a);
+        return vec4(litColor, outAlpha);
     }
 ]]
 
@@ -1091,7 +1117,7 @@ function Renderer3D:_buildButterflyWingMesh()
     return love.graphics.newMesh(VERTEX_FORMAT, verts, "triangles", "static")
 end
 
-function Renderer3D:pickPegAtScreenPos(mx, my, screenW, screenH, boardLogic, clipOffsetX, clipOffsetY)
+function Renderer3D:pickPegAtScreenPos(mx, my, screenW, screenH, boardLogic, clipOffsetX, clipOffsetY, pieceSkin)
     local aspect = screenW / screenH
     local f = 1.0 / math.tan(self.fovRad * 0.5)
 
@@ -1107,7 +1133,44 @@ function Renderer3D:pickPegAtScreenPos(mx, my, screenW, screenH, boardLogic, cli
     local bestX, bestZ, bestY = nil, nil, nil
     local bestT = 1e9
     local isFree = boardLogic and (boardLogic.ruleMode == "free")
-    local hitRadius = isFree and 0.44 or 0.36
+
+    -- В вольном режиме (без гравитации) сначала проверяем точное 3D-попадание луча в пустые слоты на штырях
+    if isFree then
+        local bestSlotScore = 1e9
+        local slotRadius = 0.48
+        for gx = 1, 4 do
+            for gz = 1, 4 do
+                local px, pz = self:gridToWorldXZ(gx, gz)
+                for ty = 1, 4 do
+                    if boardLogic:canPlace(gx, ty, gz) then
+                        local py = self:pieceWorldY(ty, pieceSkin)
+                        local ux = px - self.camPos.x
+                        local uy = py - self.camPos.y
+                        local uz = pz - self.camPos.z
+                        local tProj = ux * rayDir.x + uy * rayDir.y + uz * rayDir.z
+                        if tProj > 0.2 then
+                            local rx = ux - rayDir.x * tProj
+                            local ry = (uy - rayDir.y * tProj) * 1.32
+                            local rz = uz - rayDir.z * tProj
+                            local dSlot = math.sqrt(rx * rx + ry * ry + rz * rz)
+                            if dSlot <= slotRadius then
+                                local score = tProj + dSlot * 1.15
+                                if score < bestSlotScore then
+                                    bestSlotScore = score
+                                    bestX, bestZ, bestY = gx, gz, ty
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        if bestX then
+            return bestX, bestZ, bestY
+        end
+    end
+
+    local hitRadius = isFree and 0.48 or 0.36
 
     for gx = 1, 4 do
         for gz = 1, 4 do
@@ -1136,30 +1199,30 @@ function Renderer3D:pickPegAtScreenPos(mx, my, screenW, screenH, boardLogic, cli
                     local sqrtD = math.sqrt(disc)
                     local t1 = (-b - sqrtD) / (2.0 * a)
                     local t2 = (-b + sqrtD) / (2.0 * a)
-                    for _, t in ipairs({ t1, t2 }) do
-                        if t > 0.1 and t < bestT then
-                            local hitY = self.camPos.y + rayDir.y * t
-                            if hitY >= -0.2 and hitY <= Renderer3D.PEG_HEIGHT + 0.35 then
-                                bestT = t
-                                bestX, bestZ = gx, gz
-                                if isFree then
-                                    local bestDist = 1e9
-                                    local chosenY = nil
-                                    for ty = 1, 4 do
-                                        if boardLogic:canPlace(gx, ty, gz) then
-                                            local py = self:pieceWorldY(ty)
-                                            local d = math.abs(hitY - py)
-                                            if d < bestDist then
-                                                bestDist = d
-                                                chosenY = ty
-                                            end
+                    local tCenter = -b / (2.0 * a)
+                    local hitT = (t1 > 0.1) and t1 or ((t2 > 0.1) and t2 or nil)
+                    if hitT and hitT < bestT then
+                        local evalT = (tCenter > 0.1) and tCenter or hitT
+                        local hitY = self.camPos.y + rayDir.y * evalT
+                        if hitY >= -0.35 and hitY <= Renderer3D.PEG_HEIGHT + 0.45 then
+                            bestT = hitT
+                            bestX, bestZ = gx, gz
+                            if isFree then
+                                local bestDist = 1e9
+                                local chosenY = nil
+                                for ty = 1, 4 do
+                                    if boardLogic:canPlace(gx, ty, gz) then
+                                        local py = self:pieceWorldY(ty, pieceSkin)
+                                        local d = math.abs(hitY - py)
+                                        if d < bestDist then
+                                            bestDist = d
+                                            chosenY = ty
                                         end
                                     end
-                                    bestY = chosenY
-                                else
-                                    bestY = boardLogic and boardLogic:getNextEmptyY(gx, gz) or 1
                                 end
-                                break
+                                bestY = chosenY
+                            else
+                                bestY = boardLogic and boardLogic:getNextEmptyY(gx, gz) or 1
                             end
                         end
                     end
@@ -1231,7 +1294,9 @@ function Renderer3D:renderScene(screenW, screenH, state)
     love.graphics.setDepthMode("lequal", true)
     love.graphics.setShader(self.shader)
 
-    self:_send("u_time",       love.timer.getTime())
+    local animTime = state.staticBoardAnim and 0.0 or love.timer.getTime()
+    self:_send("u_time",       animTime)
+    self:_send("u_cloudTime",  love.timer.getTime())
     self:_send("u_camPos",     { self.camPos.x,   self.camPos.y,   self.camPos.z   })
     self:_send("u_eyePos",     { self.camPos.x,   self.camPos.y,   self.camPos.z   })
     self:_send("u_camRight",   { self.camRight.x, self.camRight.y, self.camRight.z })
@@ -1278,24 +1343,12 @@ function Renderer3D:renderScene(screenW, screenH, state)
     local baseH = Renderer3D.BASE_THICKNESS
 
     if isManhattanBoard then
-        -- Основание ночного квартала (плаза Манхэттена)
-        self:_drawMeshTransform(
-            self.meshBox,
-            { 0.0, -3.55, 0.0 },
-            { baseSpan + 0.55, 0, 0 },
-            { 0, 1.10, 0 },
-            { 0, 0, baseSpan + 0.55 },
-            { 0.04, 0.045, 0.065, 1.0 },
-            { 0, 0, 0 },
-            0.22, 0.0, 1.0, 0.0
-        )
-
-        -- 16 многоуровневых небоскрёбов с архитектурными уступами и светящимися окнами
+        -- 16 высоких многоуровневых небоскрёбов (без пола — уходят глубоко в ночной туман и тучи)
         local towerHeights = {
-            4.1, 3.3, 4.4, 3.6,
-            3.7, 4.6, 4.2, 4.0,
-            4.3, 4.0, 3.5, 4.5,
-            3.6, 4.1, 4.2, 3.4
+            10.6,  9.8, 11.0, 10.1,
+            10.2, 11.2, 10.7, 10.5,
+            10.8, 10.5, 10.0, 11.1,
+            10.1, 10.6, 10.7,  9.9
         }
         local roofOffsets = {
             -0.14, -0.44, -0.06, -0.34,
@@ -1482,9 +1535,9 @@ function Renderer3D:renderScene(screenW, screenH, state)
                     1.35,
                     7.0
                 )
-                -- Медленно и плавно мигающая красная лампочка на кончике шпиля + мягкий ореол
-                local t = love.timer.getTime()
-                local beaconPulse = 0.15 + 0.85 * math.pow(0.5 + 0.5 * math.sin(t * 1.1 + idx * 0.35), 1.6)
+                -- Медленно и плавно мигающая красная лампочка на кончике шпиля + мягкий ореол (в статичном ММ не мерцает)
+                local t = state.staticBoardAnim and 0.0 or love.timer.getTime()
+                local beaconPulse = state.staticBoardAnim and 0.78 or (0.15 + 0.85 * math.pow(0.5 + 0.5 * math.sin(t * 1.1 + idx * 0.35), 1.6))
                 self:_drawMeshTransform(
                     self.meshSphere,
                     { wx, topY + 0.05, wz },
@@ -1529,8 +1582,8 @@ function Renderer3D:renderScene(screenW, screenH, state)
         end
     end
 
-    -- 3. Если это демо-сцена миттельшпиля в меню — рисуем разбросанные рядом с полем фишки
-    if state.showScattered then
+    -- 3. Если это демо-сцена миттельшпиля в меню — рисуем разбросанные рядом с полем фишки (кроме Манхэттена без пола)
+    if state.showScattered and not isManhattanBoard then
         for _, sp in ipairs(self.scatteredPieces) do
             local col = (sp.player == 1) and pieceSkin.player1Color or pieceSkin.player2Color
             local matType, pMesh = self:_getPieceMaterialAndMesh(pieceSkin, sp.player)
@@ -1561,7 +1614,7 @@ function Renderer3D:renderScene(screenW, screenH, state)
         end
     end
 
-    local pulse = 0.5 + 0.5 * math.sin(love.timer.getTime() * 6.0)
+    local pulse = state.staticBoardAnim and 0.5 or (0.5 + 0.5 * math.sin(love.timer.getTime() * 6.0))
 
     -- 4. Отрисовка нанизанных на столбики фишек (с учетом отмотки ходов maxPly, вольного режима и особых скинов)
     if state.logic then
@@ -1609,11 +1662,11 @@ function Renderer3D:renderScene(screenW, screenH, state)
             elseif isCurrentRewindHead then
                 emissive = { 0.18 * pulse, 0.18 * pulse, 0.08 * pulse }
             elseif overrideAlpha then
-                local gp = 0.75 + 0.25 * pulse
+                local gp = 0.82 + 0.18 * pulse
                 emissive = {
-                    math.max(0.20, baseCol[1] * 0.38) * gp,
-                    math.max(0.20, baseCol[2] * 0.38) * gp,
-                    math.max(0.22, baseCol[3] * 0.38) * gp
+                    math.max(0.26, baseCol[1] * 0.45) * gp,
+                    math.max(0.26, baseCol[2] * 0.45) * gp,
+                    math.max(0.28, baseCol[3] * 0.45) * gp
                 }
             end
 
@@ -1633,7 +1686,7 @@ function Renderer3D:renderScene(screenW, screenH, state)
 
             -- Золотая 3D-звезда на макушке собранной ёлки (gy == 4)
             if pSkin.style == "pine" and gy == 4 and not overrideAlpha then
-                local sa = math.rad(35) + love.timer.getTime() * 0.75
+                local sa = math.rad(35) + (state.staticBoardAnim and 0.0 or love.timer.getTime() * 0.75)
                 local cS, sS = math.cos(sa), math.sin(sa)
                 self:_drawMeshTransform(
                     self.meshStar,
@@ -1769,13 +1822,13 @@ function Renderer3D:renderScene(screenW, screenH, state)
                 local wx, wy, wz = self:gridToWorldXYZ(gx, gy, gz, pSkin)
                 love.graphics.setDepthMode("lequal", false)
                 love.graphics.setBlendMode("alpha")
-                drawSinglePiece(gx, gy, gz, state.logic.currentPlayer, false, 0.56)
+                drawSinglePiece(gx, gy, gz, state.logic.currentPlayer, false, 0.72)
                 self:_drawMeshTransform(
                     self.meshThinTorus,
                     { wx, wy, wz },
-                    { 1.32, 0, 0 }, { 0, 0.55, 0 }, { 0, 0, 1.32 },
-                    { 0.98, 0.88, 0.38, 0.42 },
-                    { 0.40, 0.32, 0.08 },
+                    { 1.38, 0, 0 }, { 0, 0.55, 0 }, { 0, 0, 1.38 },
+                    { 1.00, 0.90, 0.42, 0.55 },
+                    { 0.55, 0.44, 0.10 },
                     0.2, 0.0, 1.0, 0.0
                 )
                 love.graphics.setDepthMode("lequal", true)
@@ -1848,6 +1901,53 @@ function Renderer3D:renderScene(screenW, screenH, state)
         )
     end
 
+    -- 5b. Ночной густой туман и плывущие облака по низу небоскрёбов Манхэттена (иллюзия высоты)
+    if isManhattanBoard then
+        local ct = love.timer.getTime()
+        love.graphics.setDepthMode("lequal", false)
+        love.graphics.setBlendMode("alpha")
+
+        local cloudDecks = {
+            { y = -1.30, span = 15.8, h = 0.22, a = 0.52, sx = 0.42, sz = -0.24 },
+            { y = -1.78, span = 18.4, h = 0.28, a = 0.74, sx = -0.34, sz = 0.36 },
+            { y = -2.35, span = 21.5, h = 0.36, a = 0.88, sx = 0.28, sz = 0.30 },
+            { y = -3.05, span = 25.0, h = 0.46, a = 0.96, sx = -0.22, sz = -0.18 }
+        }
+        for idx, cd in ipairs(cloudDecks) do
+            local dx = math.sin(ct * 0.16 + idx * 1.35) * cd.sx
+            local dz = math.cos(ct * 0.13 + idx * 1.85) * cd.sz
+            self:_drawMeshTransform(
+                self.meshRoundBase,
+                { dx, cd.y, dz },
+                { cd.span, 0, 0 }, { 0, cd.h, 0 }, { 0, 0, cd.span },
+                { 0.16, 0.22, 0.36, cd.a },
+                { 0.02, 0.03, 0.06 },
+                0.0, 0.0, 1.0, 18.0
+            )
+        end
+
+        for i = 1, 20 do
+            local baseAng = (i / 20) * math.pi * 2.0 + ct * (0.042 + (i % 3) * 0.012)
+            local ringR = 1.45 + (i % 4) * 1.35 + math.sin(ct * 0.20 + i * 0.7) * 0.32
+            local cx = math.cos(baseAng) * ringR
+            local cz = math.sin(baseAng) * ringR
+            local cy = -1.42 - (i % 4) * 0.38 + math.sin(ct * 0.32 + i * 0.9) * 0.08
+            local rx = 3.8 + (i % 3) * 1.15
+            local ry = 0.72 + (i % 2) * 0.26
+            local rz = 3.4 + ((i + 1) % 3) * 1.05
+            self:_drawMeshTransform(
+                self.meshSphere,
+                { cx, cy, cz },
+                { rx, 0, 0 }, { 0, ry, 0 }, { 0, 0, rz },
+                { 0.19, 0.25, 0.40, 0.46 },
+                { 0.02, 0.03, 0.05 },
+                0.0, 0.0, 1.0, 18.0
+            )
+        end
+
+        love.graphics.setDepthMode("lequal", true)
+    end
+
     love.graphics.setShader()
     love.graphics.setDepthMode("always", false)
 
@@ -1912,6 +2012,7 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
     love.graphics.setShader(self.shader)
 
     self:_send("u_time",       love.timer.getTime())
+    self:_send("u_cloudTime",  love.timer.getTime())
     self:_send("u_camPos",     { camPos.x,   camPos.y,   camPos.z   })
     self:_send("u_eyePos",     { camPos.x,   camPos.y,   camPos.z   })
     self:_send("u_camRight",   { camRight.x, camRight.y, camRight.z })

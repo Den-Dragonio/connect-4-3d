@@ -702,14 +702,30 @@ function love.load()
 
         -- Проверка объединённой темы День/Ночь, разблокировки Манхэттена, Вольного режима и Реванша
         assert(Config.boardSkins.manhattan and Config.boardSkins.manhattan.unlocked == true, "Expected Manhattan unlocked")
+        assert(Config.boardSkins.manhattan.rarity == "legendary", "Expected Manhattan to be legendary in shop")
         Config.activeUITheme = "minimal_gray"
         local dayT = Config.getUITheme(12)
         local nightT = Config.getUITheme(23)
         assert(dayT.bgClear[1] > 0.6 and nightT.bgClear[1] < 0.25, "Expected day/night IRL adaptive gray theme")
         assert(Config.useOwnSkins == true, "Expected useOwnSkins default ON")
 
+        Config.activeBoardSkin = "manhattan"
+        currentScreen = "menu"
+        local yawBefore = renderer.yawDeg
+        love.update(0.25)
+        assert(renderer.yawDeg == yawBefore, "Expected Manhattan to remain static (no rotation) in main menu")
+        love.draw()
+
         gameLogic:reset("free")
         gameLogic:placePiece(1, 1, 1)
+        local sxSlot, sySlot = renderer:worldToScreen(
+            select(1, renderer:gridToWorldXYZ(2, 3, 2, Config.pieceSkins.classic_bw)),
+            select(2, renderer:gridToWorldXYZ(2, 3, 2, Config.pieceSkins.classic_bw)),
+            select(3, renderer:gridToWorldXYZ(2, 3, 2, Config.pieceSkins.classic_bw)),
+            800, 600, 0.0, 0.04
+        )
+        local pX, pZ, pY = renderer:pickPegAtScreenPos(sxSlot, sySlot, 800, 600, gameLogic, 0.0, 0.04, Config.pieceSkins.classic_bw)
+        assert(pX == 2 and pZ == 2 and pY == 3, "Expected free-mode hover raycast to resolve slot (2, 3, 2)")
         renderer:renderScene(800, 600, {
             config = Config, logic = gameLogic, maxPly = 1,
             hoveredX = 2, hoveredZ = 2, hoveredY = 3,
@@ -873,7 +889,9 @@ function love.update(dt)
     end
 
     if currentScreen ~= "game" then
-        renderer:rotateCamera(dt * 11.0, 0)
+        if Config.activeBoardSkin ~= "manhattan" then
+            renderer:rotateCamera(dt * 11.0, 0)
+        end
         return
     end
 
@@ -948,7 +966,9 @@ function love.update(dt)
     if not isTouchDevice then
         local mx, my = love.mouse.getPosition()
         if not isReplayMode and not gameLogic.isGameOver and not activeDrop and isLocalPlayerTurn() and not mouseState.dragged then
-            local nx, nz, ny = renderer:pickPegAtScreenPos(mx, my, sw, sh, gameLogic, 0.0, 0.04)
+            local _, wPS, bPS = getMatchRenderSkins()
+            local curPS = (gameLogic.currentPlayer == 1) and (wPS or Config.getPieceSkin()) or (bPS or Config.getPieceSkin())
+            local nx, nz, ny = renderer:pickPegAtScreenPos(mx, my, sw, sh, gameLogic, 0.0, 0.04, curPS)
             if (nx ~= hoveredX or nz ~= hoveredZ or ny ~= hoveredY) and nx ~= nil then
                 Sound.play("hover")
             end
@@ -3855,15 +3875,98 @@ local function drawCleanGameHUD(sw, sh)
     end
 end
 
+local manhattanStars = nil
+local function ensureManhattanStars()
+    if manhattanStars then return manhattanStars end
+    manhattanStars = {}
+    for i = 1, 95 do
+        local s1 = math.abs(math.sin(i * 12.9898 + 4.1414)) * 43758.5453
+        local s2 = math.abs(math.sin(i * 78.233 + 1.7182)) * 28461.9137
+        local s3 = math.abs(math.sin(i * 39.425 + 9.1351)) * 15926.5359
+        local fx = s1 - math.floor(s1)
+        local fy = (s2 - math.floor(s2)) * 0.72 -- Верхние 72% неба над тучами
+        local fr = s3 - math.floor(s3)
+        local tint = (i % 5 == 0) and { 0.80, 0.88, 1.00 }
+                  or ((i % 7 == 0) and { 1.00, 0.94, 0.78 } or { 0.94, 0.96, 1.00 })
+        table.insert(manhattanStars, {
+            x = fx,
+            y = fy,
+            r = 0.8 + fr * 1.45,
+            baseA = 0.35 + fr * 0.60,
+            phase = i * 0.73,
+            bright = (fr > 0.84),
+            col = tint
+        })
+    end
+    return manhattanStars
+end
+
+local function drawManhattanNightSky(w, h, animateStars)
+    -- Вертикальный ночной градиент неба Манхэттена (тёмно-синяя ночь -> мягкая дымка у горизонта)
+    local bands = 14
+    local bandH = h / bands
+    for b = 0, bands - 1 do
+        local k = b / (bands - 1)
+        local r = 0.012 + k * 0.036
+        local g = 0.018 + k * 0.052
+        local bl = 0.045 + k * 0.115
+        love.graphics.setColor(r, g, bl, 1.0)
+        love.graphics.rectangle("fill", 0, b * bandH, w, bandH + 1)
+    end
+
+    -- Звёзды
+    local stars = ensureManhattanStars()
+    local now = animateStars and love.timer.getTime() or 0.0
+    for _, st in ipairs(stars) do
+        local tw = animateStars and (0.76 + 0.24 * math.sin(now * 1.8 + st.phase)) or 0.92
+        local a = st.baseA * tw
+        local sx, sy = st.x * w, st.y * h
+        love.graphics.setColor(st.col[1], st.col[2], st.col[3], a)
+        love.graphics.circle("fill", sx, sy, st.r)
+        if st.bright then
+            love.graphics.setColor(st.col[1], st.col[2], st.col[3], a * 0.40)
+            love.graphics.rectangle("fill", sx - st.r * 2.4, sy - 0.6, st.r * 4.8, 1.2)
+            love.graphics.rectangle("fill", sx - 0.6, sy - st.r * 2.4, 1.2, st.r * 4.8)
+        end
+    end
+
+    -- Луна с мягким ночным ореолом и кратерами
+    local isMenuPos = (currentScreen ~= "game")
+    local moonX = isMenuPos and (w * 0.64) or (w * 0.81)
+    local moonY = h * 0.16
+    local moonR = math.max(22, math.min(w, h) * 0.050)
+    love.graphics.setColor(0.55, 0.70, 0.98, 0.05)
+    love.graphics.circle("fill", moonX, moonY, moonR * 3.1)
+    love.graphics.setColor(0.68, 0.80, 1.00, 0.10)
+    love.graphics.circle("fill", moonX, moonY, moonR * 2.0)
+    love.graphics.setColor(0.84, 0.90, 1.00, 0.18)
+    love.graphics.circle("fill", moonX, moonY, moonR * 1.38)
+
+    love.graphics.setColor(0.94, 0.96, 0.99, 0.96)
+    love.graphics.circle("fill", moonX, moonY, moonR)
+    -- Лёгкие лунные моря (кратеры)
+    love.graphics.setColor(0.76, 0.81, 0.90, 0.36)
+    love.graphics.circle("fill", moonX - moonR * 0.28, moonY - moonR * 0.16, moonR * 0.24)
+    love.graphics.circle("fill", moonX + moonR * 0.22, moonY + moonR * 0.24, moonR * 0.19)
+    love.graphics.circle("fill", moonX + moonR * 0.06, moonY - moonR * 0.36, moonR * 0.13)
+    -- Тёпло-синяя тень для выразительного рельефа серпа/полумесяца
+    love.graphics.setColor(0.03, 0.05, 0.11, 0.24)
+    love.graphics.circle("fill", moonX - moonR * 0.42, moonY - moonR * 0.12, moonR * 0.88)
+end
+
 function love.draw()
     local sw, sh, uiScale, realW, realH = getUIScaleAndDims()
     local ui = Config.getUITheme()
     local bOv, wPS, bPS = getMatchRenderSkins()
     local activeBoardId = bOv and bOv.id or Config.activeBoardSkin
-    local clearCol = (currentScreen == "game" and activeBoardId == "manhattan")
-        and { 0.015, 0.020, 0.038, 1.0 }
+    local isManhattanBg = (currentScreen ~= "shop" and activeBoardId == "manhattan")
+    local clearCol = isManhattanBg
+        and { 0.014, 0.020, 0.045, 1.0 }
         or ui.bgClear
     love.graphics.clear(clearCol[1], clearCol[2], clearCol[3], 1.0, true, true)
+    if isManhattanBg then
+        drawManhattanNightSky(realW, realH, currentScreen == "game")
+    end
     uiButtons = {}
 
     if currentScreen == "game" then
@@ -3898,16 +4001,17 @@ function love.draw()
     else
         local isPortrait = (realW < realH)
         renderer:renderScene(realW, realH, {
-            config        = Config,
-            logic         = menuDemoLogic,
-            hoveredX      = nil,
-            hoveredZ      = nil,
-            activeDrop    = nil,
-            showScattered = true,
-            showCoords    = false,
-            coordFont     = fonts.coord,
-            clipOffsetX   = isPortrait and 0.0 or 0.27,
-            clipOffsetY   = isPortrait and 0.36 or 0.10
+            config          = Config,
+            logic           = menuDemoLogic,
+            hoveredX        = nil,
+            hoveredZ        = nil,
+            activeDrop      = nil,
+            showScattered   = true,
+            showCoords      = false,
+            coordFont       = fonts.coord,
+            clipOffsetX     = isPortrait and 0.0 or 0.27,
+            clipOffsetY     = isPortrait and 0.36 or 0.10,
+            staticBoardAnim = (Config.activeBoardSkin == "manhattan")
         })
 
         love.graphics.push()
@@ -3994,7 +4098,10 @@ function love.mousepressed(x, y, button)
     end
 end
 
-function love.mousemoved(x, y, dx, dy)
+function love.mousemoved(x, y, dx, dy, istouch)
+    if not istouch then
+        isTouchDevice = false
+    end
     if pinchActive then return end
     local sw, sh, uiScale = getUIScaleAndDims()
     local ux, uy = x / uiScale, y / uiScale
@@ -4077,7 +4184,9 @@ function love.mousereleased(x, y, button)
             end
 
             if currentScreen == "game" and not isReplayMode and not gameLogic.isGameOver and not activeDrop and isLocalPlayerTurn() then
-                local gx, gz, gy = renderer:pickPegAtScreenPos(x, y, realW, realH, gameLogic, 0.0, 0.04)
+                local _, wPS, bPS = getMatchRenderSkins()
+                local curPS = (gameLogic.currentPlayer == 1) and (wPS or Config.getPieceSkin()) or (bPS or Config.getPieceSkin())
+                local gx, gz, gy = renderer:pickPegAtScreenPos(x, y, realW, realH, gameLogic, 0.0, 0.04, curPS)
                 if gx and gz then
                     if isTouchDevice then
                         if hoveredX == gx and hoveredZ == gz and hoveredY == gy then

@@ -149,11 +149,28 @@ local SHADER_PIXEL = [[
             surfaceAlbedo = mix(doughColor, glazeColor, icingMask);
             specFactor = mix(0.14, 0.92, icingMask);
         } else if (u_materialType > 1.5 && u_materialType < 2.5) {
-            // 2: Сочные еловые иголки (Vibrant Pine Needles - Emerald Green vs Royal Blue)
-            float needle = woodNoise3(vec3(v_localPos.x * 32.0, v_localPos.y * 18.0, v_localPos.z * 32.0));
-            vec3 pineBase = mix(u_baseColor.rgb * 0.88, u_baseColor.rgb * 1.25, needle);
-            surfaceAlbedo = pineBase;
-            specFactor = 0.35;
+            // 2: Глубокая текстура хвои с лёгкой гирляндой и игрушками
+            float rFrac = clamp(length(v_localPos.xz) / 0.49, 0.0, 1.0);
+            float ang = atan(v_localPos.z, v_localPos.x);
+            float needle = woodNoise3(vec3(v_localPos.x * 36.0, v_localPos.y * 22.0, v_localPos.z * 36.0));
+            float fineFrond = 0.5 + 0.5 * sin(ang * 40.0 + rFrac * 18.0);
+            float boughAO = mix(0.32, 0.96, pow(rFrac, 0.72));
+            vec3 pineCol = u_baseColor.rgb * boughAO * (0.68 + 0.24 * needle + 0.14 * fineFrond);
+            // Мини-шарики/огоньки ближе к краям ярусов
+            float seg = mod(ang + 3.14159, 1.256637) - 0.628318;
+            float dBauble = length(vec3(rFrac - 0.74, seg * 0.74, (v_localPos.y + 0.12) * 1.45));
+            if (rFrac > 0.56 && dBauble < 0.088) {
+                float idx = floor((ang + 3.14159) / 1.256637);
+                float isAlt = mod(idx, 2.0);
+                float twinkle = 0.65 + 0.35 * sin(u_time * 3.6 + idx * 1.7 + v_worldPos.y * 4.0);
+                vec3 baubleCol = (isAlt < 0.5) ? vec3(1.00, 0.80, 0.18) : vec3(0.96, 0.20, 0.22);
+                surfaceAlbedo = baubleCol;
+                extraGlow += baubleCol * (0.28 * twinkle);
+                specFactor = 0.92;
+            } else {
+                surfaceAlbedo = pineCol;
+                specFactor = 0.16;
+            }
         } else if (u_materialType > 2.5 && u_materialType < 3.5) {
             // 3: Ядерный Уран (Glowing & Blinking Radioactive Uranium-235)
             float radPulse = 0.55 + 0.45 * sin(u_time * 5.2);
@@ -398,6 +415,7 @@ function Renderer3D.new()
     self.meshRoundBase    = self:_buildCappedDiscMesh(64)
     self.meshBox          = self:_buildUnitBoxMesh()
     self.meshPineConeTip  = self:_buildPineConeTipMesh(32)
+    self.meshStar         = self:_buildStarMesh(0.24, 0.10, 0.075)
     self.meshThinTorus    = self:_buildTorusMesh(0.355, 0.082, 36, 18)
     self.meshBead         = self:_buildTorusMesh(0.24, 0.20, 32, 20)
     self.meshSphere       = self:_buildSphereMesh(22, 14)
@@ -469,6 +487,9 @@ function Renderer3D:pieceWorldY(gy, pieceSkin)
     local style = pieceSkin and pieceSkin.style or "wood"
     if style == "pine" then
         return 0.335 + (gy - 1) * 0.67
+    elseif style == "snowman" then
+        local ys = { 0.40, 1.10, 1.74, 2.02 }
+        return ys[gy] or (Renderer3D.SLOT_START_Y + (gy - 1) * Renderer3D.SLOT_STEP_Y)
     end
     return Renderer3D.SLOT_START_Y + (gy - 1) * Renderer3D.SLOT_STEP_Y
 end
@@ -549,31 +570,31 @@ function Renderer3D:_buildTorusMesh(majorR, minorR, ringSegs, tubeSegs)
     return love.graphics.newMesh(VERTEX_FORMAT, verts, "triangles", "static")
 end
 
--- Конусообразный ярус еловых веток с волнистыми лапами (полная высота 0.67, равная верхушке)
+-- Конусообразный ярус пышных еловых лап
 function Renderer3D:_buildPineTierMesh(ringSegs, tubeSegs)
     local verts = {}
-    local innerR = 0.185 -- диаметр отверстия под штырь (радиус штыря 0.15)
-    local outerR = 0.485 -- размах еловых лап
-    local yTop   = 0.335
+    local innerR = 0.156 -- плотно прилегает к штырю (радиус штыря 0.15)
+    local outerR = 0.495 -- размах еловых лап
+    local yTop   = 0.345
     local yBot   = -0.335
 
     local function getPoint(u, v)
         local cu, su = math.cos(u), math.sin(u)
-        local wave = 1.0 + 0.13 * math.cos(u * 10.0)
+        local wave = 1.0 + 0.14 * math.cos(u * 10.0) + 0.04 * math.cos(u * 20.0)
         local r = innerR + (outerR * wave - innerR) * v
         local px = r * cu
-        local py = yTop + (yBot - yTop) * (v * v)
+        local py = yTop + (yBot - yTop) * (v ^ 1.35) + 0.025 * math.sin(v * math.pi)
         local pz = r * su
 
         local slope = (yBot - yTop) / (outerR - innerR)
-        local nx = cu * (-slope)
+        local nx = cu * (-slope) + 0.14 * math.sin(u * 10.0) * (-su)
         local ny = 1.0
-        local nz = su * (-slope)
+        local nz = su * (-slope) + 0.14 * math.sin(u * 10.0) * cu
         local nl = math.sqrt(nx*nx + ny*ny + nz*nz)
         return { px, py, pz, nx/nl, ny/nl, nz/nl }
     end
 
-    local uSteps = ringSegs or 32
+    local uSteps = ringSegs or 36
     local vSteps = tubeSegs or 10
     for i = 0, uSteps - 1 do
         local u0 = (i / uSteps) * math.pi * 2
@@ -587,21 +608,17 @@ function Renderer3D:_buildPineTierMesh(ringSegs, tubeSegs)
             local p11 = getPoint(u1, v1)
             local p01 = getPoint(u0, v1)
 
-            table.insert(verts, p00)
-            table.insert(verts, p10)
-            table.insert(verts, p11)
+            table.insert(verts, p00); table.insert(verts, p10); table.insert(verts, p11)
+            table.insert(verts, p00); table.insert(verts, p11); table.insert(verts, p01)
 
-            table.insert(verts, p00)
-            table.insert(verts, p11)
-            table.insert(verts, p01)
+            local drop = 0.055
+            table.insert(verts, { p00[1], p00[2] - drop, p00[3], 0, -1, 0 })
+            table.insert(verts, { p11[1], p11[2] - drop, p11[3], 0, -1, 0 })
+            table.insert(verts, { p10[1], p10[2] - drop, p10[3], 0, -1, 0 })
 
-            table.insert(verts, { p00[1], p00[2] - 0.04, p00[3], 0, -1, 0 })
-            table.insert(verts, { p11[1], p11[2] - 0.04, p11[3], 0, -1, 0 })
-            table.insert(verts, { p10[1], p10[2] - 0.04, p10[3], 0, -1, 0 })
-
-            table.insert(verts, { p00[1], p00[2] - 0.04, p00[3], 0, -1, 0 })
-            table.insert(verts, { p01[1], p01[2] - 0.04, p01[3], 0, -1, 0 })
-            table.insert(verts, { p11[1], p11[2] - 0.04, p11[3], 0, -1, 0 })
+            table.insert(verts, { p00[1], p00[2] - drop, p00[3], 0, -1, 0 })
+            table.insert(verts, { p01[1], p01[2] - drop, p01[3], 0, -1, 0 })
+            table.insert(verts, { p11[1], p11[2] - drop, p11[3], 0, -1, 0 })
         end
     end
 
@@ -738,36 +755,80 @@ function Renderer3D:_buildUnitBoxMesh()
     return love.graphics.newMesh(VERTEX_FORMAT, verts, "triangles", "static")
 end
 
--- Закрытая конусная верхушка ёлки (полностью покрывает штырь, глухая без отверстия, одинаковой высоты 0.68)
+-- Закрытая пушистая конусная верхушка ёлки (полностью накрывает штырь и купол сверху, без отверстия)
 function Renderer3D:_buildPineConeTipMesh(segs)
     local verts = {}
-    local r = 0.46
-    local yBot, yTop = -0.335, 0.345
-    local nSegs = segs or 32
+    local baseR = 0.52
+    local yBot, yTop = -0.335, 0.66
+    local nSegs = segs or 36
+    local nRings = 7
+
+    local function pt(a, t)
+        local c, s = math.cos(a), math.sin(a)
+        local wave = 1.0 + 0.12 * math.cos(a * 10.0) * (1.0 - t * 0.65)
+        local profile = (1.0 - t) ^ 0.58
+        local r = baseR * wave * profile
+        local y = yBot + (yTop - yBot) * t
+        local nx, ny, nz = c * 0.85, 0.52, s * 0.85
+        return { c * r, y, s * r, nx, ny, nz }
+    end
 
     for i = 0, nSegs - 1 do
         local a0 = (i / nSegs) * math.pi * 2
         local a1 = ((i + 1) / nSegs) * math.pi * 2
-        local c0, s0 = math.cos(a0), math.sin(a0)
-        local c1, s1 = math.cos(a1), math.sin(a1)
-        local w0 = 1.0 + 0.12 * math.cos(a0 * 10.0)
-        local w1 = 1.0 + 0.12 * math.cos(a1 * 10.0)
-        local r0, r1 = r * w0, r * w1
+        for j = 0, nRings - 1 do
+            local t0 = j / nRings
+            local t1 = (j + 1) / nRings
+            if j < nRings - 1 then
+                local p00 = pt(a0, t0); local p10 = pt(a1, t0)
+                local p11 = pt(a1, t1); local p01 = pt(a0, t1)
+                table.insert(verts, p00); table.insert(verts, p10); table.insert(verts, p11)
+                table.insert(verts, p00); table.insert(verts, p11); table.insert(verts, p01)
+            else
+                local p00 = pt(a0, t0); local p10 = pt(a1, t0)
+                table.insert(verts, p00)
+                table.insert(verts, p10)
+                table.insert(verts, { 0, yTop, 0, (p00[4]+p10[4])*0.5, 0.7, (p00[6]+p10[6])*0.5 })
+            end
+        end
 
-        local nr0 = (yTop - yBot) / math.sqrt(r0*r0 + (yTop - yBot)^2)
-        local ny0 = r0 / math.sqrt(r0*r0 + (yTop - yBot)^2)
-        local nr1 = (yTop - yBot) / math.sqrt(r1*r1 + (yTop - yBot)^2)
-        local ny1 = r1 / math.sqrt(r1*r1 + (yTop - yBot)^2)
-
-        -- Конусная поверхность к острой верхушке
-        table.insert(verts, { c0*r0, yBot, s0*r0, c0*nr0, ny0, s0*nr0 })
-        table.insert(verts, { c1*r1, yBot, s1*r1, c1*nr1, ny1, s1*nr1 })
-        table.insert(verts, { 0, yTop, 0, (c0+c1)*0.5*nr0, ny0, (s0+s1)*0.5*nr0 })
-
-        -- Глухая нижняя плоскость, полностью закрывающая торец штыря
+        -- Глухая нижняя плоскость
+        local b0 = pt(a0, 0.0); local b1 = pt(a1, 0.0)
         table.insert(verts, { 0, yBot, 0, 0, -1, 0 })
-        table.insert(verts, { c0*r0, yBot, s0*r0, 0, -1, 0 })
-        table.insert(verts, { c1*r1, yBot, s1*r1, 0, -1, 0 })
+        table.insert(verts, { b0[1], yBot, b0[3], 0, -1, 0 })
+        table.insert(verts, { b1[1], yBot, b1[3], 0, -1, 0 })
+    end
+    return love.graphics.newMesh(VERTEX_FORMAT, verts, "triangles", "static")
+end
+
+-- Объёмная 5-конечная звезда на макушку ёлки
+function Renderer3D:_buildStarMesh(outerR, innerR, depth)
+    local verts = {}
+    local R = outerR or 0.24
+    local r = innerR or 0.10
+    local d = depth or 0.075
+    local pts = {}
+    for k = 0, 9 do
+        local a = (k / 10) * math.pi * 2 + math.pi * 0.5
+        local rad = (k % 2 == 0) and R or r
+        pts[k + 1] = { math.cos(a) * rad, math.sin(a) * rad }
+    end
+    local function addTri(a, b, c)
+        local ux, uy, uz = b[1]-a[1], b[2]-a[2], b[3]-a[3]
+        local vx, vy, vz = c[1]-a[1], c[2]-a[2], c[3]-a[3]
+        local nx, ny, nz = uy*vz - uz*vy, uz*vx - ux*vz, ux*vy - uy*vx
+        local nl = math.sqrt(nx*nx + ny*ny + nz*nz)
+        if nl < 1e-6 then nl = 1 end
+        nx, ny, nz = nx/nl, ny/nl, nz/nl
+        table.insert(verts, { a[1], a[2], a[3], nx, ny, nz })
+        table.insert(verts, { b[1], b[2], b[3], nx, ny, nz })
+        table.insert(verts, { c[1], c[2], c[3], nx, ny, nz })
+    end
+    for k = 1, 10 do
+        local p0 = pts[k]
+        local p1 = pts[(k % 10) + 1]
+        addTri({ 0, 0,  d }, { p0[1], p0[2], 0 }, { p1[1], p1[2], 0 })
+        addTri({ 0, 0, -d }, { p1[1], p1[2], 0 }, { p0[1], p0[2], 0 })
     end
     return love.graphics.newMesh(VERTEX_FORMAT, verts, "triangles", "static")
 end
@@ -821,7 +882,7 @@ function Renderer3D:_buildPumpkinMesh(segs, rings)
     return love.graphics.newMesh(VERTEX_FORMAT, verts, "triangles", "static")
 end
 
--- Чёрный цилиндр-шляпа для верхушки снеговика
+-- Чёрный цилиндр-шляпа для верхушки снеговика (сидит на голове и полностью прячет верхушку штыря)
 function Renderer3D:_buildTopHatMesh(segs)
     local verts = {}
     local function addRing(rBot, rTop, yBot, yTop)
@@ -839,10 +900,13 @@ function Renderer3D:_buildTopHatMesh(segs)
             table.insert(verts, { 0, yTop, 0, 0, 1, 0 })
             table.insert(verts, { c1*rTop, yTop, s1*rTop, 0, 1, 0 })
             table.insert(verts, { c0*rTop, yTop, s0*rTop, 0, 1, 0 })
+            table.insert(verts, { 0, yBot, 0, 0, -1, 0 })
+            table.insert(verts, { c0*rBot, yBot, s0*rBot, 0, -1, 0 })
+            table.insert(verts, { c1*rBot, yBot, s1*rBot, 0, -1, 0 })
         end
     end
-    addRing(0.42, 0.42, -0.18, -0.12) -- Поля шляпы
-    addRing(0.26, 0.28, -0.12, 0.34)  -- Тулья цилиндра
+    addRing(0.45, 0.45, -0.04, 0.05) -- Широкие поля шляпы
+    addRing(0.27, 0.31,  0.05, 0.85) -- Высокая тулья цилиндра (закрывает штырь y=2.83)
     return love.graphics.newMesh(VERTEX_FORMAT, verts, "triangles", "static")
 end
 
@@ -1461,22 +1525,22 @@ function Renderer3D:renderScene(screenW, screenH, state)
             local taperXZ = 1.0
             local scaleY = 1.0
             if pieceSkin.style == "pine" then
-                -- Елка: нижний ярус самый широкий, верхушка уже, высота всех ярусов одинакова (0.67)
-                taperXZ = 1.30 - (gy - 1) * 0.18
+                -- Ёлка: нижний ярус широкий, верхушка пушистым конусом закрывает штырь
+                taperXZ = 1.24 - (gy - 1) * 0.14
                 scaleY = 1.0
-            elseif pieceSkin.taperByHeight then
-                taperXZ = 1.28 - (gy - 1) * 0.19
             elseif pieceSkin.style == "snowman" then
                 if gy == 1 then
-                    taperXZ, scaleY = 1.02, 0.80
+                    taperXZ, scaleY = 1.04, 0.80
                 elseif gy == 2 then
-                    taperXZ, scaleY = 0.84, 0.68
+                    taperXZ, scaleY = 0.88, 0.72
                 elseif gy == 3 then
-                    taperXZ, scaleY = 0.68, 0.56
+                    taperXZ, scaleY = 0.74, 0.64
                 elseif gy == 4 then
-                    taperXZ, scaleY = 0.90, 0.88
+                    taperXZ, scaleY = 0.88, 1.00
                     baseCol = { 0.08, 0.08, 0.10, overrideAlpha or 1.0 }
                 end
+            elseif pieceSkin.taperByHeight then
+                taperXZ = 1.28 - (gy - 1) * 0.19
             end
 
             local scale = 1.0
@@ -1504,56 +1568,110 @@ function Renderer3D:renderScene(screenW, screenH, state)
                 matType
             )
 
-            -- Детали снеговика: пуговицы (gy=2), лицо: глаза, морковка, улыбка (gy=3), цилиндр (gy=4)
+            -- Золотая 3D-звезда на макушке собранной ёлки (gy == 4)
+            if pieceSkin.style == "pine" and gy == 4 and not overrideAlpha then
+                local sa = math.rad(35) + self.time * 0.75
+                local cS, sS = math.cos(sa), math.sin(sa)
+                self:_drawMeshTransform(
+                    self.meshStar,
+                    { wx, wy + 0.78, wz },
+                    { cS, 0, -sS },
+                    { 0, 1.0, 0 },
+                    { sS, 0, cS },
+                    { 1.00, 0.82, 0.16, 1.0 },
+                    { 0.35 + 0.12 * pulse, 0.24 + 0.08 * pulse, 0.04 },
+                    0.95, 0.0, 1.0, 7.0
+                )
+            end
+
+            -- Детали снеговика: шарф + пуговицы (gy=2), лицо с морковкой (gy=3), лента на цилиндре (gy=4)
             if pieceSkin.style == "snowman" and not overrideAlpha then
+                -- Лицом к базовой камере (yaw = 35 deg): вперёд (fx, fz), вправо (rx, rz)
+                local fx, fz = 0.5736, 0.8192
+                local rx, rz = 0.8192, -0.5736
+                local accentCol = (player == 1) and { 0.88, 0.14, 0.18, 1.0 } or { 0.14, 0.40, 0.92, 1.0 }
+
                 if gy == 2 then
+                    -- Уютный шарфик на верхней части туловища
+                    self:_drawMeshTransform(
+                        self.meshTorus,
+                        { wx, wy + 0.31, wz },
+                        { 0.74, 0, 0 }, { 0, 0.36, 0 }, { 0, 0, 0.74 },
+                        accentCol, { 0, 0, 0 }, 0.22, 0.0, 1.0, 0.0
+                    )
+                    -- Хвостик шарфа спереди справа
+                    self:_drawMeshTransform(
+                        self.meshBox,
+                        { wx + fx * 0.28 + rx * 0.14, wy + 0.15, wz + fz * 0.28 + rz * 0.14 },
+                        { rx * 0.12, 0, rz * 0.12 },
+                        { fx * 0.04, 0.24, fz * 0.04 },
+                        { fx * 0.07, 0, fz * 0.07 },
+                        accentCol, { 0, 0, 0 }, 0.20, 0.0, 1.0, 0.0
+                    )
                     -- 3 угольные пуговицы на груди
-                    for _, dy in ipairs({ -0.10, 0.0, 0.10 }) do
+                    for _, bInfo in ipairs({ { -0.14, 0.41 }, { -0.02, 0.43 }, { 0.10, 0.42 } }) do
+                        local dy, rad = bInfo[1], bInfo[2]
                         self:_drawMeshTransform(
                             self.meshSphere,
-                            { wx + 0.28, wy + dy, wz + 0.28 },
-                            { 0.065, 0, 0 }, { 0, 0.065, 0 }, { 0, 0, 0.065 },
-                            { 0.05, 0.05, 0.06, 1.0 }, { 0, 0, 0 }, 0.4, 0.0, 1.0, 0.0
+                            { wx + fx * rad, wy + dy, wz + fz * rad },
+                            { 0.068, 0, 0 }, { 0, 0.068, 0 }, { 0, 0, 0.068 },
+                            { 0.04, 0.04, 0.05, 1.0 }, { 0, 0, 0 }, 0.7, 0.0, 1.0, 0.0
                         )
                     end
                 elseif gy == 3 then
-                    -- Глазки на поверхности головы r = 0.355 (отчетливо видны с камеры)
-                    for _, eyePos in ipairs({
-                        { 0.18, 0.09, 0.31 }, { 0.31, 0.09, 0.18 },
-                        { -0.18, 0.09, -0.31 }, { -0.31, 0.09, -0.18 }
-                    }) do
+                    -- 2 блестящих угольных глазика
+                    for _, side in ipairs({ -1, 1 }) do
+                        local ex = wx + fx * 0.33 + rx * (side * 0.115)
+                        local ez = wz + fz * 0.33 + rz * (side * 0.115)
                         self:_drawMeshTransform(
                             self.meshSphere,
-                            { wx + eyePos[1], wy + eyePos[2], wz + eyePos[3] },
-                            { 0.058, 0, 0 }, { 0, 0.058, 0 }, { 0, 0, 0.058 },
-                            { 0.03, 0.03, 0.04, 1.0 }, { 0, 0, 0 }, 0.6, 0.0, 1.0, 0.0
+                            { ex, wy + 0.09, ez },
+                            { 0.065, 0, 0 }, { 0, 0.065, 0 }, { 0, 0, 0.065 },
+                            { 0.03, 0.03, 0.04, 1.0 }, { 0, 0, 0 }, 0.85, 0.0, 1.0, 0.0
                         )
                     end
-                    -- Ярко-оранжевая морковка-нос, смотрящая наружу по диагонали
+                    -- Румянец на щеках
+                    for _, side in ipairs({ -1, 1 }) do
+                        local cx = wx + fx * 0.29 + rx * (side * 0.185)
+                        local cz = wz + fz * 0.29 + rz * (side * 0.185)
+                        self:_drawMeshTransform(
+                            self.meshSphere,
+                            { cx, wy - 0.01, cz },
+                            { 0.055, 0, 0 }, { 0, 0.045, 0 }, { 0, 0, 0.055 },
+                            { 0.96, 0.42, 0.46, 1.0 }, { 0, 0, 0 }, 0.20, 0.0, 1.0, 0.0
+                        )
+                    end
+                    -- Ярко-оранжевая морковка-нос, смотрящая прямо вперёд
                     self:_drawMeshTransform(
                         self.meshPineConeTip,
-                        { wx + 0.28, wy - 0.01, wz + 0.28 },
-                        { 0.14, 0, 0 }, { 0, 0, 0.28 }, { 0, -0.14, 0 },
-                        { 1.00, 0.48, 0.04, 1.0 }, { 0.18, 0.06, 0.0 }, 0.4, 0.0, 1.0, 0.0
+                        { wx + fx * 0.40, wy - 0.01, wz + fz * 0.40 },
+                        { rx * 0.11, 0, rz * 0.11 },
+                        { fx * 0.30, 0, fz * 0.30 },
+                        { 0, -0.11, 0 },
+                        { 1.00, 0.46, 0.04, 1.0 }, { 0.14, 0.05, 0.0 }, 0.45, 0.0, 1.0, 0.0
                     )
-                    -- Угольки улыбки
-                    for _, mPos in ipairs({
-                        { 0.15, -0.09, 0.31 }, { 0.24, -0.11, 0.24 }, { 0.31, -0.09, 0.15 }
+                    -- Улыбка из 5 угольков
+                    for _, m in ipairs({
+                        { -0.14, -0.075, 0.31 },
+                        { -0.07, -0.105, 0.33 },
+                        {  0.00, -0.115, 0.34 },
+                        {  0.07, -0.105, 0.33 },
+                        {  0.14, -0.075, 0.31 }
                     }) do
                         self:_drawMeshTransform(
                             self.meshSphere,
-                            { wx + mPos[1], wy + mPos[2], wz + mPos[3] },
-                            { 0.04, 0, 0 }, { 0, 0.04, 0 }, { 0, 0, 0.04 },
-                            { 0.04, 0.04, 0.05, 1.0 }, { 0, 0, 0 }, 0.4, 0.0, 1.0, 0.0
+                            { wx + fx * m[3] + rx * m[1], wy + m[2], wz + fz * m[3] + rz * m[1] },
+                            { 0.040, 0, 0 }, { 0, 0.040, 0 }, { 0, 0, 0.040 },
+                            { 0.03, 0.03, 0.04, 1.0 }, { 0, 0, 0 }, 0.65, 0.0, 1.0, 0.0
                         )
                     end
                 elseif gy == 4 then
-                    -- Черный цилиндр-шляпа
+                    -- Цветная атласная лента у основания цилиндра-шляпы (сам цилиндр уже нарисован как pMesh)
                     self:_drawMeshTransform(
-                        self.meshTopHat,
-                        { wx, wy + 0.12, wz },
-                        { 0.65, 0, 0 }, { 0, 0.65, 0 }, { 0, 0, 0.65 },
-                        { 0.08, 0.08, 0.10, 1.0 }, { 0, 0, 0 }, 0.3, 0.0, 1.0, 0.0
+                        self.meshCylinder,
+                        { wx, wy + 0.10, wz },
+                        { 0.50, 0, 0 }, { 0, 0.10, 0 }, { 0, 0, 0.50 },
+                        accentCol, { 0, 0, 0 }, 0.55, 0.0, 1.0, 0.0
                     )
                 end
             end
@@ -1729,23 +1847,109 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
     self:_send("u_clipOffset", { clipOffX, clipOffY })
 
     local ca, sa = math.cos(angle), math.sin(angle)
+    local isSil = (itemData and itemData.silhouette == true)
+    local function drawPrev(mesh, pos, axX, axY, axZ, col, em, spec, wood, wScale, mat)
+        if isSil then
+            self:_drawMeshTransform(
+                mesh, pos, axX, axY, axZ,
+                { 0.03, 0.03, 0.035, 1.0 }, { 0, 0, 0 },
+                0.03, 0.0, 1.0, 0.0
+            )
+        else
+            self:_drawMeshTransform(mesh, pos, axX, axY, axZ, col, em, spec, wood, wScale, mat)
+        end
+    end
 
     if previewType == "pieces" then
         local mat1, mesh1 = self:_getPieceMaterialAndMesh(itemData, 1)
         local mat2, mesh2 = self:_getPieceMaterialAndMesh(itemData, 2)
 
-        if itemData.taperByHeight then
-            -- Для «Веточек Ёлки» в витрине магазина рисуем собранную 4-ярусную конусную ёлочку с закрытой верхушкой!
+        if itemData.style == "snowman" then
+            -- Вращающийся 3D-снеговик с шарфиком, пуговицами, морковкой, глазами и цилиндром
+            local tiers = {
+                { py = -0.68, sXZ = 1.04, sY = 0.80, gy = 1 },
+                { py = -0.22, sXZ = 0.88, sY = 0.72, gy = 2 },
+                { py =  0.22, sXZ = 0.74, sY = 0.64, gy = 3 },
+                { py =  0.42, sXZ = 0.88, sY = 0.95, gy = 4 },
+            }
+            for _, t in ipairs(tiers) do
+                local matG, meshG = self:_getPieceMaterialAndMesh(itemData, 1, t.gy)
+                local col = (t.gy == 4) and { 0.08, 0.08, 0.10, 1.0 } or itemData.player1Color
+                drawPrev(
+                    meshG,
+                    { 0.0, t.py, 0.0 },
+                    { ca * t.sXZ, 0, -sa * t.sXZ },
+                    { 0, t.sY, 0 },
+                    { sa * t.sXZ, 0, ca * t.sXZ },
+                    col, { 0, 0, 0 }, itemData.specular or 0.35, 0.0, 1.8, matG
+                )
+            end
+            if not isSil then
+                -- Ось «вперёд» и «вправо», вращающиеся вместе со снеговиком
+                local fx, fz = sa, ca
+                local rx, rz = ca, -sa
+                -- Шарфик + пуговицы
+                drawPrev(
+                    self.meshTorus,
+                    { 0.0, 0.00, 0.0 },
+                    { ca * 0.74, 0, -sa * 0.74 }, { 0, 0.36, 0 }, { sa * 0.74, 0, ca * 0.74 },
+                    { 0.88, 0.14, 0.18, 1.0 }, { 0, 0, 0 }, 0.25, 0.0, 1.0, 0.0
+                )
+                for _, dy in ipairs({ -0.34, -0.22, -0.10 }) do
+                    drawPrev(
+                        self.meshSphere,
+                        { fx * 0.42, dy, fz * 0.42 },
+                        { 0.068, 0, 0 }, { 0, 0.068, 0 }, { 0, 0, 0.068 },
+                        { 0.04, 0.04, 0.05, 1.0 }, { 0, 0, 0 }, 0.7, 0.0, 1.0, 0.0
+                    )
+                end
+                -- Глаза
+                for _, side in ipairs({ -1, 1 }) do
+                    drawPrev(
+                        self.meshSphere,
+                        { fx * 0.33 + rx * (side * 0.115), 0.31, fz * 0.33 + rz * (side * 0.115) },
+                        { 0.065, 0, 0 }, { 0, 0.065, 0 }, { 0, 0, 0.065 },
+                        { 0.03, 0.03, 0.04, 1.0 }, { 0, 0, 0 }, 0.85, 0.0, 1.0, 0.0
+                    )
+                end
+                -- Оранжевый нос-морковка
+                drawPrev(
+                    self.meshPineConeTip,
+                    { fx * 0.40, 0.21, fz * 0.40 },
+                    { rx * 0.11, 0, rz * 0.11 },
+                    { fx * 0.30, 0, fz * 0.30 },
+                    { 0, -0.11, 0 },
+                    { 1.00, 0.46, 0.04, 1.0 }, { 0.14, 0.05, 0.0 }, 0.45, 0.0, 1.0, 0.0
+                )
+                -- Улыбка
+                for _, m in ipairs({ { -0.12, 0.14, 0.31 }, { -0.05, 0.11, 0.33 }, { 0.05, 0.11, 0.33 }, { 0.12, 0.14, 0.31 } }) do
+                    drawPrev(
+                        self.meshSphere,
+                        { fx * m[3] + rx * m[1], m[2], fz * m[3] + rz * m[1] },
+                        { 0.038, 0, 0 }, { 0, 0.038, 0 }, { 0, 0, 0.038 },
+                        { 0.03, 0.03, 0.04, 1.0 }, { 0, 0, 0 }, 0.65, 0.0, 1.0, 0.0
+                    )
+                end
+                -- Лента на шляпе
+                drawPrev(
+                    self.meshCylinder,
+                    { 0.0, 0.51, 0.0 },
+                    { 0.50, 0, 0 }, { 0, 0.10, 0 }, { 0, 0, 0.50 },
+                    { 0.88, 0.14, 0.18, 1.0 }, { 0, 0, 0 }, 0.55, 0.0, 1.0, 0.0
+                )
+            end
+        elseif itemData.style == "pine" or itemData.taperByHeight then
+            -- Собранная 4-ярусная ёлочка с макушкой-звездой
             for gy = 1, 4 do
                 local matG, meshG = self:_getPieceMaterialAndMesh(itemData, 1, gy)
-                local taper = (1.28 - (gy - 1) * 0.20) * 1.12
-                local py = -0.60 + (gy - 1) * 0.38
+                local taper = (1.24 - (gy - 1) * 0.14) * 1.08
+                local py = -0.68 + (gy - 1) * 0.42
                 local col = (gy % 2 == 1) and itemData.player1Color or itemData.player2Color
-                self:_drawMeshTransform(
+                drawPrev(
                     meshG,
                     { 0.0, py, 0.0 },
                     { ca * taper, 0, sa * taper },
-                    { 0, 1.05, 0 },
+                    { 0, 1.0, 0 },
                     { -sa * taper, 0, ca * taper },
                     col,
                     { 0, 0, 0 },
@@ -1755,28 +1959,12 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
                     matG
                 )
             end
-        elseif itemData.style == "snowman" then
-            local tiers = {
-                { py = -0.58, sXZ = 1.02, sY = 0.80, gy = 1 },
-                { py = -0.20, sXZ = 0.84, sY = 0.68, gy = 2 },
-                { py =  0.14, sXZ = 0.68, sY = 0.56, gy = 3 },
-                { py =  0.46, sXZ = 0.90, sY = 0.88, gy = 4 },
-            }
-            for _, t in ipairs(tiers) do
-                local matG, meshG = self:_getPieceMaterialAndMesh(itemData, 1, t.gy)
-                local col = (t.gy == 4) and { 0.08, 0.08, 0.10, 1.0 } or itemData.player1Color
-                self:_drawMeshTransform(
-                    meshG,
-                    { 0.0, t.py, 0.0 },
-                    { ca * t.sXZ, 0, sa * t.sXZ },
-                    { 0, t.sY, 0 },
-                    { -sa * t.sXZ, 0, ca * t.sXZ },
-                    col,
-                    { 0, 0, 0 },
-                    itemData.specular or 0.35,
-                    0.0,
-                    1.8,
-                    matG
+            if not isSil then
+                drawPrev(
+                    self.meshStar,
+                    { 0.0, 0.96, 0.0 },
+                    { ca, 0, -sa }, { 0, 1.0, 0 }, { sa, 0, ca },
+                    { 1.00, 0.82, 0.16, 1.0 }, { 0.38, 0.26, 0.04 }, 0.95, 0.0, 1.0, 7.0
                 )
             end
         else
@@ -1786,7 +1974,7 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
             local axY = { -sa * 0.35 * s, 0.92 * s, ca * 0.35 * s }
             local axZ = { -sa * s, -0.35 * s, ca * s }
 
-            self:_drawMeshTransform(
+            drawPrev(
                 mesh1,
                 { -0.45, 0.22, 0.0 },
                 axX, axY, axZ,
@@ -1797,7 +1985,7 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
                 1.8,
                 mat1
             )
-            self:_drawMeshTransform(
+            drawPrev(
                 mesh2,
                 { 0.45, -0.22, 0.25 },
                 axX, axY, axZ,
@@ -1812,7 +2000,7 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
     elseif previewType == "board_shape" then
         local mesh = (itemData.shape == "round") and self.meshRoundBase or self.meshBox
         local span = (itemData.shape == "round") and 1.35 or 1.15
-        self:_drawMeshTransform(
+        drawPrev(
             mesh,
             { 0.0, 0.0, 0.0 },
             { ca * span, 0, sa * span },
@@ -1833,11 +2021,11 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
         local isForest = (bStyle == "forest")
         local isMetal  = (bStyle == "metal")
         local isCake   = (bStyle == "cake")
-        local isSnowy  = (bStyle == "snowy")
+        local isSnowy  = (bStyle == "snow" or bStyle == "snowy")
         local isJap    = (bStyle == "japanese_roof")
         local isCity   = (bStyle == "skyscraper" or bStyle == "manhattan")
         local matId    = isForest and 5.0 or (isMetal and 7.0 or (isCake and 8.0 or (isSnowy and 15.0 or (isJap and 13.0 or (isCity and 11.0 or 0.0)))))
-        self:_drawMeshTransform(
+        drawPrev(
             mesh,
             { 0.0, -0.15, 0.0 },
             { ca * span, 0, sa * span },
@@ -1854,7 +2042,7 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
         for _, off in ipairs({ {-0.3, -0.3}, {0.3, -0.3}, {-0.3, 0.3}, {0.3, 0.3} }) do
             local rx = off[1] * ca - off[2] * sa
             local rz = off[1] * sa + off[2] * ca
-            self:_drawMeshTransform(
+            drawPrev(
                 self.meshPeg,
                 { rx, -0.02, rz },
                 { 0.35, 0, 0 },

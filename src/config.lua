@@ -393,7 +393,6 @@ local Config = {
             nameKey = "skin_snowman",
             style = "snowman",
             rarity = "legendary",
-            taperByHeight = true,
             player1Color = { 0.96, 0.98, 1.00, 1.0 }, -- Snow White
             player2Color = { 0.98, 0.86, 0.28, 1.0 }, -- Warm Golden Yellow
             woodStrength = 0.20,

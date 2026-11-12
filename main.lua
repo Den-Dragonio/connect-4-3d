@@ -2077,8 +2077,26 @@ local function drawRulesModal(sw, sh)
     })
 end
 
+local function getShopMaxScrollX(sw)
+    local cardW, cardGap = 260, 26
+    local count = 0
+    if shopTab == "pieces" then
+        count = #Config.pieceSkinOrder
+    elseif shopTab == "board" then
+        count = 1 + #Config.boardSkinOrder
+    elseif shopTab == "themes" then
+        count = #Config.uiThemeOrder
+    end
+    if count <= 0 then return 0 end
+    local contentW = 64 + count * cardW + (count - 1) * cardGap + 64
+    return math.max(0, contentW - (sw or 1280))
+end
+
 local function drawShopScreen(sw, sh)
     local ui = Config.getUITheme()
+    local maxShopScroll = getShopMaxScrollX(sw)
+    shopTargetScrollX = math.max(0, math.min(maxShopScroll, shopTargetScrollX))
+    shopScrollX = math.max(0, math.min(maxShopScroll, shopScrollX))
     love.graphics.setColor(ui.bgClear)
     love.graphics.rectangle("fill", 0, 0, sw, sh)
 
@@ -2209,10 +2227,31 @@ local function drawShopScreen(sw, sh)
                         love.graphics.printf(I18N.t("rarity_common"), cx + 10, rowY + 34, cardW - 20, "center")
                     end
 
+                    local isClosed = (skin.underRework == true) or (not skin.unlocked and skin.unlockType == "ach")
                     local prevX, prevW = cx + 18, cardW - 36
-                    love.graphics.setColor(ui.bgClear)
+                    if isClosed then
+                        love.graphics.setColor(math.max(0.16, ui.bgClear[1]), math.max(0.17, ui.bgClear[2]), math.max(0.21, ui.bgClear[3]), 1.0)
+                    else
+                        love.graphics.setColor(ui.bgClear)
+                    end
                     love.graphics.rectangle("fill", prevX, prevY, prevW, prevH, 10, 10)
-                    renderer:renderShopPreview(prevX, prevY, prevW, prevH, sw, sh, "pieces", skin, shopSpinAngle + i * 0.5)
+                    local prevItem = skin
+                    if isClosed then
+                        prevItem = {
+                            id = skin.id,
+                            style = skin.style,
+                            taperByHeight = skin.taperByHeight,
+                            player1Color = skin.player1Color,
+                            player2Color = skin.player2Color,
+                            woodStrength = skin.woodStrength,
+                            specular = skin.specular,
+                            silhouette = true
+                        }
+                    end
+                    renderer:renderShopPreview(
+                        prevX, prevY, prevW, prevH, sw, sh, "pieces",
+                        prevItem, isClosed and 0.45 or (shopSpinAngle + i * 0.5)
+                    )
 
                     local isSelected = (Config.activePieceSkin == skinId)
                     if skin.underRework then
@@ -2403,16 +2442,22 @@ local function drawShopScreen(sw, sh)
                         love.graphics.printf(I18N.t("rarity_common"), cx + 10, rowY + 34, cardW - 20, "center")
                     end
 
+                    local isClosed = (bSkin.underRework == true) or (not bSkin.unlocked and bSkin.unlockType == "ach")
                     local prevX, prevW = cx + 18, cardW - 36
-                    love.graphics.setColor(ui.bgClear)
+                    if isClosed then
+                        love.graphics.setColor(math.max(0.16, ui.bgClear[1]), math.max(0.17, ui.bgClear[2]), math.max(0.21, ui.bgClear[3]), 1.0)
+                    else
+                        love.graphics.setColor(ui.bgClear)
+                    end
                     love.graphics.rectangle("fill", prevX, prevY, prevW, prevH, 10, 10)
                     renderer:renderShopPreview(prevX, prevY, prevW, prevH, sw, sh, "board_skin", {
                         isRound = (Config.boardShape == "round"),
                         style = bSkin.style,
                         baseColor = bSkin.baseColor,
                         pegColor = bSkin.pegColor,
-                        woodStrength = bSkin.woodStrength
-                    }, shopSpinAngle + idx * 0.4)
+                        woodStrength = bSkin.woodStrength,
+                        silhouette = isClosed
+                    }, isClosed and 0.45 or (shopSpinAngle + idx * 0.4))
 
                     local isSelected = (Config.activeBoardSkin == bSkinId)
                     if bSkin.underRework then
@@ -2723,7 +2768,29 @@ local function drawCleanGameHUD(sw, sh)
         end
     end
 
-    -- 3. CENTER SCREEN POPUP AFTER VICTORY / DRAW (Toggle with F / А to inspect board!)
+    -- Кнопка / значок выхода в главное меню прямо под списком ходов
+    local exitY = ly + logH + 10
+    local exitH = 38
+    drawButton("hud_main_menu", lx, exitY, logW, exitH, "  " .. I18N.t("main_menu"), {
+        font = fonts.small,
+        onClick = function()
+            Sound.play("click")
+            isReplayMode = false
+            currentScreen = "menu"
+        end
+    })
+    -- Чёткая векторная иконка двери/выхода слева на кнопке
+    do
+        local ix, iy = lx + 16, exitY + 10
+        love.graphics.setColor(ui.textMain)
+        love.graphics.setLineWidth(1.8)
+        love.graphics.line(ix + 8, iy, ix, iy, ix, iy + 18, ix + 8, iy + 18)
+        love.graphics.line(ix + 5, iy + 9, ix + 15, iy + 9)
+        love.graphics.line(ix + 11, iy + 5, ix + 15, iy + 9, ix + 11, iy + 13)
+        love.graphics.setLineWidth(1)
+    end
+
+    -- 3. CENTER SCREEN POPUP AFTER VICTORY / DRAW (Toggle with F / А or [X] to inspect board!)
     if gameLogic.isGameOver and not activeDrop then
         if not hideWinModal then
             love.graphics.setColor(0.05, 0.05, 0.06, 0.62)
@@ -2732,6 +2799,14 @@ local function drawCleanGameHUD(sw, sh)
             local pw, ph = 520, 276
             local px, py = (sw - pw) * 0.5, (sh - ph) * 0.5
             drawPanel(px, py, pw, ph)
+
+            drawButton("win_close_x", px + pw - 44, py + 12, 32, 32, "X", {
+                font = fonts.small,
+                onClick = function()
+                    Sound.play("click")
+                    hideWinModal = true
+                end
+            })
 
             love.graphics.setFont(fonts.h2)
             love.graphics.setColor(ui.textMain)
@@ -2751,7 +2826,7 @@ local function drawCleanGameHUD(sw, sh)
                 subText = I18N.t(gameLogic.winningLineType)
             end
 
-            love.graphics.printf(titleText, px + 20, py + 24, pw - 40, "center")
+            love.graphics.printf(titleText, px + 48, py + 24, pw - 96, "center")
 
             love.graphics.setFont(fonts.body)
             love.graphics.setColor(ui.textSub)
@@ -2953,7 +3028,8 @@ function love.mousemoved(x, y, dx, dy)
     end
 
     if currentScreen == "shop" and shopDragging and mouseState.dragged then
-        shopTargetScrollX = math.max(0, math.min(1850, shopTargetScrollX - udx * 1.25))
+        local maxScroll = getShopMaxScrollX(sw)
+        shopTargetScrollX = math.max(0, math.min(maxScroll, shopTargetScrollX - udx * 1.25))
         return
     end
 
@@ -3110,7 +3186,9 @@ function love.wheelmoved(wx, wy)
     elseif currentScreen == "rules_modal" and wy ~= 0 then
         rulesScrollOffset = math.max(0, rulesScrollOffset - wy * 34)
     elseif currentScreen == "shop" and wy ~= 0 then
-        shopTargetScrollX = math.max(0, math.min(2800, shopTargetScrollX - wy * 90))
+        local sw = getUIScaleAndDims()
+        local maxScroll = getShopMaxScrollX(sw)
+        shopTargetScrollX = math.max(0, math.min(maxScroll, shopTargetScrollX - wy * 90))
     end
 end
 

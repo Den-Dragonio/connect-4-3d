@@ -268,17 +268,16 @@ local Config = {
 
     pieceSkinOrder = {
         "classic_bw",
+        "crimson_cobalt",
+        "emerald_gold",
+        "gold_silver_rings",
         "nuclear_core",
+        "pumpkin_halloween",
+        "glazed_donuts",
         "pine_tree",
         "snowman",
-        "pumpkin_halloween",
-        "gold_silver_rings",
         "thin_rings",
-        "beads",
-        "glazed_donuts",
-        "crimson_cobalt",
         "amber_obsidian",
-        "emerald_gold",
         "neon_ad",
         "ivory_ach"
     },
@@ -288,6 +287,7 @@ local Config = {
             id = "classic_bw",
             nameKey = "skin_bw",
             style = "wood",
+            rarity = "common",
             player1Color = { 0.88, 0.82, 0.72, 1.0 },
             player2Color = { 0.19, 0.14, 0.11, 1.0 },
             woodStrength = 0.85,
@@ -296,108 +296,11 @@ local Config = {
             unlockType = "free",
             price = 0
         },
-        glazed_donuts = {
-            id = "glazed_donuts",
-            nameKey = "skin_donut",
-            style = "donut",
-            player1Color = { 0.98, 0.95, 0.92, 1.0 }, -- White icing glaze on golden donut
-            player2Color = { 0.24, 0.12, 0.06, 1.0 }, -- Dark chocolate glaze on pastry donut
-            woodStrength = 0.25,
-            specular = 0.78,
-            unlocked = true,
-            unlockType = "free",
-            price = 0
-        },
-        pine_tree = {
-            id = "pine_tree",
-            nameKey = "skin_pine",
-            style = "pine",
-            taperByHeight = true, -- Снизу шире, сверху уже -> складывается в 3D-ёлку
-            player1Color = { 0.05, 0.85, 0.28, 1.0 }, -- Яркий насыщенный изумрудно-зеленый
-            player2Color = { 0.08, 0.55, 1.00, 1.0 }, -- Яркий насыщенный королевский синий
-            woodStrength = 0.40,
-            specular = 0.35,
-            unlocked = true,
-            unlockType = "free",
-            price = 0
-        },
-        gold_silver_rings = {
-            id = "gold_silver_rings",
-            nameKey = "skin_gold_silver",
-            style = "metal_ring",
-            player1Color = { 0.96, 0.78, 0.24, 1.0 }, -- Polished Gold
-            player2Color = { 0.82, 0.86, 0.92, 1.0 }, -- Mirror Silver
-            woodStrength = 0.08,
-            specular = 0.95,
-            unlocked = true,
-            unlockType = "free",
-            price = 0
-        },
-        thin_rings = {
-            id = "thin_rings",
-            nameKey = "skin_thin_rings",
-            style = "thin_ring",
-            player1Color = { 0.92, 0.94, 0.96, 1.0 },
-            player2Color = { 0.18, 0.20, 0.24, 1.0 },
-            woodStrength = 0.15,
-            specular = 0.72,
-            unlocked = true,
-            unlockType = "free",
-            price = 0
-        },
-        beads = {
-            id = "beads",
-            nameKey = "skin_beads",
-            style = "bead",
-            player1Color = { 0.96, 0.86, 0.74, 1.0 }, -- Pearl Cream Beads
-            player2Color = { 0.26, 0.42, 0.68, 1.0 }, -- Sapphire Glass Beads
-            woodStrength = 0.15,
-            specular = 0.88,
-            unlocked = true,
-            unlockType = "free",
-            price = 0
-        },
-        pumpkin_halloween = {
-            id = "pumpkin_halloween",
-            nameKey = "skin_pumpkin",
-            style = "pumpkin",
-            player1Color = { 0.96, 0.44, 0.08, 1.0 }, -- Classic Jack-o-Lantern Orange
-            player2Color = { 0.34, 0.18, 0.46, 1.0 }, -- Midnight Witch Pumpkin
-            woodStrength = 0.35,
-            specular = 0.45,
-            unlocked = true,
-            unlockType = "free",
-            price = 0
-        },
-        snowman = {
-            id = "snowman",
-            nameKey = "skin_snowman",
-            style = "snowman",
-            taperByHeight = true,
-            player1Color = { 0.96, 0.98, 1.00, 1.0 }, -- Snow White
-            player2Color = { 0.98, 0.86, 0.28, 1.0 }, -- Warm Golden Yellow
-            woodStrength = 0.20,
-            specular = 0.38,
-            unlocked = true,
-            unlockType = "free",
-            price = 0
-        },
-        nuclear_core = {
-            id = "nuclear_core",
-            nameKey = "skin_nuclear",
-            style = "nuclear",
-            rarity = "epic",
-            player1Color = { 0.28, 1.00, 0.22, 1.0 }, -- Uranium-235 (glowing & pulsing radiation)
-            player2Color = { 0.21, 0.23, 0.26, 1.0 }, -- Reactor Graphite (dark carbon moderator)
-            woodStrength = 0.45,
-            specular = 0.62,
-            unlocked = true,
-            unlockType = "free",
-            price = 0
-        },
         crimson_cobalt = {
             id = "crimson_cobalt",
             nameKey = "skin_rb",
+            style = "wood",
+            rarity = "common",
             player1Color = { 0.86, 0.20, 0.22, 1.0 },
             player2Color = { 0.16, 0.36, 0.82, 1.0 },
             woodStrength = 0.75,
@@ -406,20 +309,11 @@ local Config = {
             unlockType = "coins",
             price = 100
         },
-        amber_obsidian = {
-            id = "amber_obsidian",
-            nameKey = "skin_amber",
-            player1Color = { 0.92, 0.62, 0.16, 1.0 },
-            player2Color = { 0.16, 0.13, 0.22, 1.0 },
-            woodStrength = 0.65,
-            specular = 0.45,
-            unlocked = false,
-            unlockType = "coins",
-            price = 100
-        },
         emerald_gold = {
             id = "emerald_gold",
             nameKey = "skin_emerald",
+            style = "wood",
+            rarity = "common",
             player1Color = { 0.94, 0.78, 0.26, 1.0 },
             player2Color = { 0.12, 0.52, 0.34, 1.0 },
             woodStrength = 0.60,
@@ -427,6 +321,112 @@ local Config = {
             unlocked = false,
             unlockType = "coins",
             price = 100
+        },
+        gold_silver_rings = {
+            id = "gold_silver_rings",
+            nameKey = "skin_gold_silver",
+            style = "metal_ring",
+            rarity = "rare",
+            player1Color = { 0.96, 0.78, 0.24, 1.0 }, -- Polished Gold
+            player2Color = { 0.82, 0.86, 0.92, 1.0 }, -- Mirror Silver
+            woodStrength = 0.08,
+            specular = 0.95,
+            unlocked = false,
+            unlockType = "coins",
+            price = 250
+        },
+        nuclear_core = {
+            id = "nuclear_core",
+            nameKey = "skin_nuclear",
+            style = "nuclear",
+            rarity = "rare",
+            player1Color = { 0.28, 1.00, 0.22, 1.0 }, -- Uranium-235 (glowing & pulsing radiation)
+            player2Color = { 0.21, 0.23, 0.26, 1.0 }, -- Reactor Graphite (dark carbon moderator)
+            woodStrength = 0.45,
+            specular = 0.62,
+            unlocked = false,
+            unlockType = "coins",
+            price = 250
+        },
+        pumpkin_halloween = {
+            id = "pumpkin_halloween",
+            nameKey = "skin_pumpkin",
+            style = "pumpkin",
+            rarity = "rare",
+            player1Color = { 0.96, 0.44, 0.08, 1.0 }, -- Classic Jack-o-Lantern Orange
+            player2Color = { 0.34, 0.18, 0.46, 1.0 }, -- Midnight Witch Pumpkin
+            woodStrength = 0.35,
+            specular = 0.45,
+            unlocked = false,
+            unlockType = "coins",
+            price = 250
+        },
+        glazed_donuts = {
+            id = "glazed_donuts",
+            nameKey = "skin_donut",
+            style = "donut",
+            rarity = "epic",
+            player1Color = { 0.98, 0.95, 0.92, 1.0 }, -- White icing glaze on golden donut
+            player2Color = { 0.24, 0.12, 0.06, 1.0 }, -- Dark chocolate glaze on pastry donut
+            woodStrength = 0.25,
+            specular = 0.78,
+            unlocked = false,
+            unlockType = "coins",
+            price = 500
+        },
+        pine_tree = {
+            id = "pine_tree",
+            nameKey = "skin_pine",
+            style = "pine",
+            rarity = "legendary",
+            taperByHeight = true, -- Снизу шире, сверху уже -> складывается в 3D-ёлку
+            player1Color = { 0.05, 0.85, 0.28, 1.0 }, -- Яркий насыщенный изумрудно-зеленый
+            player2Color = { 0.08, 0.55, 1.00, 1.0 }, -- Яркий насыщенный королевский синий
+            woodStrength = 0.40,
+            specular = 0.35,
+            unlocked = false,
+            unlockType = "coins",
+            price = 1000
+        },
+        snowman = {
+            id = "snowman",
+            nameKey = "skin_snowman",
+            style = "snowman",
+            rarity = "legendary",
+            taperByHeight = true,
+            player1Color = { 0.96, 0.98, 1.00, 1.0 }, -- Snow White
+            player2Color = { 0.98, 0.86, 0.28, 1.0 }, -- Warm Golden Yellow
+            woodStrength = 0.20,
+            specular = 0.38,
+            unlocked = false,
+            unlockType = "coins",
+            price = 1000
+        },
+        thin_rings = {
+            id = "thin_rings",
+            nameKey = "skin_thin_rings",
+            style = "thin_ring",
+            underRework = true,
+            player1Color = { 0.92, 0.94, 0.96, 1.0 },
+            player2Color = { 0.18, 0.20, 0.24, 1.0 },
+            woodStrength = 0.15,
+            specular = 0.72,
+            unlocked = false,
+            unlockType = "rework",
+            price = 0
+        },
+        amber_obsidian = {
+            id = "amber_obsidian",
+            nameKey = "skin_amber",
+            style = "wood",
+            underRework = true,
+            player1Color = { 0.92, 0.62, 0.16, 1.0 },
+            player2Color = { 0.16, 0.13, 0.22, 1.0 },
+            woodStrength = 0.65,
+            specular = 0.45,
+            unlocked = false,
+            unlockType = "rework",
+            price = 0
         },
         neon_ad = {
             id = "neon_ad",
@@ -454,16 +454,16 @@ local Config = {
 
     boardSkinOrder = {
         "dark_wood",
-        "forest_glade",
-        "snowy_winter",
-        "japanese_roof",
-        "skyscraper",
-        "manhattan",
-        "sweet_cake",
+        "white_wood",
         "metal_steel",
         "gold_ach",
-        "white_wood",
-        "obsidian_stub"
+        "sweet_cake",
+        "snowy_winter",
+        "forest_glade",
+        "obsidian_stub",
+        "japanese_roof",
+        "skyscraper",
+        "manhattan"
     },
 
     boardSkins = {
@@ -471,6 +471,7 @@ local Config = {
             id = "dark_wood",
             nameKey = "board_dark_wood",
             style = "wood",
+            rarity = "common",
             soundType = "wood",
             baseColor = { 0.30, 0.19, 0.12, 1.0 },
             pegColor  = { 0.38, 0.25, 0.16, 1.0 },
@@ -480,31 +481,75 @@ local Config = {
             unlockType = "free",
             price = 0
         },
-        sweet_cake = {
-            id = "sweet_cake",
-            nameKey = "board_cake",
-            style = "cake",
-            soundType = "cake",
-            baseColor = { 0.96, 0.74, 0.82, 1.0 }, -- Strawberry-vanilla cake frosting & sponge layers
-            pegColor  = { 0.84, 0.60, 0.34, 1.0 }, -- Crispy chocolate-striped wafer roll sticks
-            pegHover  = { 1.00, 0.50, 0.74, 1.0 },
-            woodStrength = 0.20,
-            unlocked = true,
-            unlockType = "free",
-            price = 0
+        white_wood = {
+            id = "white_wood",
+            nameKey = "board_white_wood",
+            style = "wood",
+            rarity = "common",
+            soundType = "light_wood",
+            baseColor = { 0.88, 0.85, 0.79, 1.0 },
+            pegColor  = { 0.82, 0.78, 0.71, 1.0 },
+            pegHover  = { 0.95, 0.74, 0.30, 1.0 },
+            woodStrength = 0.85,
+            unlocked = false,
+            unlockType = "coins",
+            price = 100
         },
         metal_steel = {
             id = "metal_steel",
             nameKey = "board_metal",
             style = "metal",
+            rarity = "common",
             soundType = "metal",
             baseColor = { 0.44, 0.48, 0.54, 1.0 }, -- Brushed industrial steel base
             pegColor  = { 0.68, 0.73, 0.80, 1.0 }, -- Polished chrome/steel rods
             pegHover  = { 0.45, 0.86, 1.00, 1.0 },
             woodStrength = 0.12,
-            unlocked = true,
-            unlockType = "free",
-            price = 0
+            unlocked = false,
+            unlockType = "coins",
+            price = 200
+        },
+        gold_ach = {
+            id = "gold_ach",
+            nameKey = "board_gold",
+            style = "metal",
+            soundType = "metal",
+            rarity = "rare",
+            baseColor = { 0.96, 0.80, 0.22, 1.0 }, -- Чистое сияющее золото 24K
+            pegColor  = { 0.98, 0.86, 0.36, 1.0 }, -- Золотые полированные штыри
+            pegHover  = { 1.00, 0.96, 0.65, 1.0 },
+            woodStrength = 0.02,
+            unlocked = false,
+            unlockType = "coins",
+            price = 300
+        },
+        sweet_cake = {
+            id = "sweet_cake",
+            nameKey = "board_cake",
+            style = "cake",
+            rarity = "rare",
+            soundType = "cake",
+            baseColor = { 0.96, 0.74, 0.82, 1.0 }, -- Strawberry-vanilla cake frosting & sponge layers
+            pegColor  = { 0.84, 0.60, 0.34, 1.0 }, -- Crispy chocolate-striped wafer roll sticks
+            pegHover  = { 1.00, 0.50, 0.74, 1.0 },
+            woodStrength = 0.20,
+            unlocked = false,
+            unlockType = "coins",
+            price = 400
+        },
+        snowy_winter = {
+            id = "snowy_winter",
+            nameKey = "board_snow",
+            style = "snow",
+            rarity = "rare",
+            soundType = "forest",
+            baseColor = { 0.94, 0.97, 1.00, 1.0 },
+            pegColor  = { 0.80, 0.88, 0.96, 1.0 },
+            pegHover  = { 0.42, 0.78, 1.00, 1.0 },
+            woodStrength = 0.15,
+            unlocked = false,
+            unlockType = "coins",
+            price = 500
         },
         forest_glade = {
             id = "forest_glade",
@@ -518,27 +563,15 @@ local Config = {
             pegColor  = { 0.35, 0.22, 0.12, 1.0 }, -- Tree trunk bark
             pegHover  = { 0.62, 0.90, 0.32, 1.0 },
             woodStrength = 0.95,
-            unlocked = true,
-            unlockType = "free",
-            price = 0
-        },
-        white_wood = {
-            id = "white_wood",
-            nameKey = "board_white_wood",
-            style = "wood",
-            soundType = "light_wood",
-            baseColor = { 0.88, 0.85, 0.79, 1.0 },
-            pegColor  = { 0.82, 0.78, 0.71, 1.0 },
-            pegHover  = { 0.95, 0.74, 0.30, 1.0 },
-            woodStrength = 0.85,
             unlocked = false,
             unlockType = "coins",
-            price = 100
+            price = 1000
         },
         obsidian_stub = {
             id = "obsidian_stub",
             nameKey = "board_obsidian",
             style = "stone",
+            rarity = "rare",
             soundType = "stone",
             baseColor = { 0.16, 0.17, 0.21, 1.0 },
             pegColor  = { 0.32, 0.34, 0.40, 1.0 },
@@ -548,44 +581,19 @@ local Config = {
             unlockType = "coins",
             price = 200
         },
-        gold_ach = {
-            id = "gold_ach",
-            nameKey = "board_gold",
-            style = "metal",
-            soundType = "metal",
-            baseColor = { 0.56, 0.40, 0.18, 1.0 },
-            pegColor  = { 0.78, 0.60, 0.26, 1.0 },
-            pegHover  = { 1.00, 0.88, 0.42, 1.0 },
-            woodStrength = 0.90,
-            unlocked = true,
-            unlockType = "free",
-            price = 0
-        },
-        snowy_winter = {
-            id = "snowy_winter",
-            nameKey = "board_snow",
-            style = "snow",
-            soundType = "forest",
-            baseColor = { 0.94, 0.97, 1.00, 1.0 },
-            pegColor  = { 0.80, 0.88, 0.96, 1.0 },
-            pegHover  = { 0.42, 0.78, 1.00, 1.0 },
-            woodStrength = 0.15,
-            unlocked = true,
-            unlockType = "free",
-            price = 0
-        },
         japanese_roof = {
             id = "japanese_roof",
             nameKey = "board_japanese",
             style = "japanese_roof",
             soundType = "wood",
             hasMist = true,
+            underRework = true,
             baseColor = { 0.20, 0.23, 0.28, 1.0 }, -- Slate ceramic roof tiles
             pegColor  = { 0.74, 0.18, 0.16, 1.0 }, -- Vermilion torii-red wooden pillars
             pegHover  = { 1.00, 0.56, 0.24, 1.0 },
             woodStrength = 0.45,
-            unlocked = true,
-            unlockType = "free",
+            unlocked = false,
+            unlockType = "rework",
             price = 0
         },
         skyscraper = {
@@ -594,12 +602,13 @@ local Config = {
             style = "skyscraper",
             soundType = "metal",
             hasMist = true,
+            underRework = true,
             baseColor = { 0.36, 0.46, 0.58, 1.0 }, -- Trade tower glass & steel roof
             pegColor  = { 0.78, 0.84, 0.90, 1.0 }, -- Radio/spire antennas
             pegHover  = { 0.40, 0.88, 1.00, 1.0 },
             woodStrength = 0.15,
-            unlocked = true,
-            unlockType = "free",
+            unlocked = false,
+            unlockType = "rework",
             price = 0
         },
         manhattan = {
@@ -608,12 +617,13 @@ local Config = {
             style = "manhattan",
             soundType = "metal",
             hasMist = false,
+            underRework = true,
             baseColor = { 0.08, 0.09, 0.13, 1.0 }, -- Night Manhattan glass towers
             pegColor  = { 0.65, 0.70, 0.78, 1.0 }, -- Slender spire antennas with blinking red beacons
             pegHover  = { 1.00, 0.45, 0.38, 1.0 },
             woodStrength = 0.08,
-            unlocked = true,
-            unlockType = "free",
+            unlocked = false,
+            unlockType = "rework",
             price = 0
         }
     },

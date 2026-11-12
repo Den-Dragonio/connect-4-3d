@@ -650,6 +650,22 @@ local function drawButton(id, x, y, w, h, label, opts)
     local mx, my = getUIMousePos()
     local hovered = mx >= x and mx <= x + w and my >= y and my <= y + h
 
+    if opts.disabled then
+        love.graphics.setColor(0.18, 0.19, 0.22, 0.90)
+        love.graphics.rectangle("fill", x, y, w, h, 10, 10)
+        love.graphics.setColor(0.35, 0.38, 0.44, 0.70)
+        love.graphics.setLineWidth(1.2)
+        love.graphics.rectangle("line", x, y, w, h, 10, 10)
+        local f = opts.font or fonts.btn
+        love.graphics.setFont(f)
+        love.graphics.setColor(0.55, 0.58, 0.65, 0.85)
+        local _, wrapped = f:getWrap(label, w - 14)
+        local totalH = #wrapped * f:getHeight()
+        love.graphics.printf(label, x + 7, y + (h - totalH) * 0.5, w - 14, "center")
+        table.insert(uiButtons, { id = id, x = x, y = y, w = w, h = h, onClick = opts.onClick or function() end })
+        return
+    end
+
     local bg = opts.primary and ui.btnPrimary or ui.btnDefault
     if opts.active then
         bg = ui.btnActive
@@ -2127,85 +2143,134 @@ local function drawShopScreen(sw, sh)
 
         for i, skinId in ipairs(Config.pieceSkinOrder) do
             local skin = Config.pieceSkins[skinId]
-            local cx = 64 + (i - 1) * (cardW + cardGap) - shopScrollX
-            if cx + cardW >= -20 and cx <= sw + 20 then
-                drawPanel(cx, rowY, cardW, cardH)
-                if skin.rarity == "legendary" then
-                    love.graphics.setColor(0.95, 0.76, 0.14, 0.24)
-                    love.graphics.rectangle("fill", cx + 2, rowY + 2, cardW - 4, cardH - 4, 14, 14)
-                    love.graphics.setColor(0.98, 0.82, 0.22, 0.90)
-                    love.graphics.setLineWidth(2)
-                    love.graphics.rectangle("line", cx, rowY, cardW, cardH, 14, 14)
-                elseif skin.rarity == "epic" then
-                    love.graphics.setColor(0.62, 0.24, 0.88, 0.24)
-                    love.graphics.rectangle("fill", cx + 2, rowY + 2, cardW - 4, cardH - 4, 14, 14)
-                    love.graphics.setColor(0.74, 0.36, 0.98, 0.90)
-                    love.graphics.setLineWidth(2)
-                    love.graphics.rectangle("line", cx, rowY, cardW, cardH, 14, 14)
-                end
+            if skin then
+                local cx = 64 + (i - 1) * (cardW + cardGap) - shopScrollX
+                if cx + cardW >= -20 and cx <= sw + 20 then
+                    drawPanel(cx, rowY, cardW, cardH)
+                    if skin.underRework then
+                        love.graphics.setColor(0.12, 0.13, 0.16, 0.60)
+                        love.graphics.rectangle("fill", cx + 2, rowY + 2, cardW - 4, cardH - 4, 14, 14)
+                        love.graphics.setColor(0.38, 0.40, 0.46, 0.60)
+                        love.graphics.setLineWidth(1.5)
+                        love.graphics.rectangle("line", cx, rowY, cardW, cardH, 14, 14)
+                    elseif skin.rarity == "legendary" then
+                        love.graphics.setColor(0.95, 0.76, 0.14, 0.24)
+                        love.graphics.rectangle("fill", cx + 2, rowY + 2, cardW - 4, cardH - 4, 14, 14)
+                        love.graphics.setColor(0.98, 0.82, 0.22, 0.90)
+                        love.graphics.setLineWidth(2)
+                        love.graphics.rectangle("line", cx, rowY, cardW, cardH, 14, 14)
+                    elseif skin.rarity == "epic" then
+                        love.graphics.setColor(0.62, 0.24, 0.88, 0.24)
+                        love.graphics.rectangle("fill", cx + 2, rowY + 2, cardW - 4, cardH - 4, 14, 14)
+                        love.graphics.setColor(0.74, 0.36, 0.98, 0.90)
+                        love.graphics.setLineWidth(2)
+                        love.graphics.rectangle("line", cx, rowY, cardW, cardH, 14, 14)
+                    elseif skin.rarity == "rare" then
+                        love.graphics.setColor(0.16, 0.70, 0.34, 0.20)
+                        love.graphics.rectangle("fill", cx + 2, rowY + 2, cardW - 4, cardH - 4, 14, 14)
+                        love.graphics.setColor(0.25, 0.88, 0.45, 0.90)
+                        love.graphics.setLineWidth(2)
+                        love.graphics.rectangle("line", cx, rowY, cardW, cardH, 14, 14)
+                    end
 
-                love.graphics.setFont(fonts.btn)
-                love.graphics.setColor(ui.textMain)
-                love.graphics.printf(I18N.t(skin.nameKey), cx + 12, rowY + 12, cardW - 24, "center")
-                if skin.upgradeable then
-                    local wCount = (Config.skinWins and Config.skinWins[skinId]) or 0
+                    love.graphics.setFont(fonts.btn)
+                    if skin.underRework then
+                        love.graphics.setColor(0.58, 0.62, 0.68, 1.0)
+                    elseif skin.rarity == "legendary" then
+                        love.graphics.setColor(1.00, 0.88, 0.35, 1.0)
+                    elseif skin.rarity == "epic" then
+                        love.graphics.setColor(0.85, 0.55, 1.00, 1.0)
+                    elseif skin.rarity == "rare" then
+                        love.graphics.setColor(0.40, 0.95, 0.55, 1.0)
+                    else
+                        love.graphics.setColor(ui.textMain)
+                    end
+                    love.graphics.printf(I18N.t(skin.nameKey), cx + 12, rowY + 12, cardW - 24, "center")
+
                     love.graphics.setFont(fonts.small)
-                    love.graphics.setColor(0.98, 0.84, 0.28, 1.0)
-                    love.graphics.printf(I18N.t("skin_upgrade_hint", math.min(10, wCount)), cx + 10, rowY + 34, cardW - 20, "center")
-                end
+                    if skin.underRework then
+                        love.graphics.setColor(0.85, 0.45, 0.35, 1.0)
+                        love.graphics.printf(I18N.t("btn_rework"), cx + 10, rowY + 34, cardW - 20, "center")
+                    elseif skin.upgradeable then
+                        local wCount = (Config.skinWins and Config.skinWins[skinId]) or 0
+                        love.graphics.setColor(0.98, 0.84, 0.28, 1.0)
+                        love.graphics.printf(I18N.t("skin_upgrade_hint", math.min(10, wCount)), cx + 10, rowY + 34, cardW - 20, "center")
+                    elseif skin.rarity == "legendary" then
+                        love.graphics.setColor(0.98, 0.84, 0.28, 1.0)
+                        love.graphics.printf(I18N.t("rarity_legendary"), cx + 10, rowY + 34, cardW - 20, "center")
+                    elseif skin.rarity == "epic" then
+                        love.graphics.setColor(0.78, 0.46, 0.98, 1.0)
+                        love.graphics.printf(I18N.t("rarity_epic"), cx + 10, rowY + 34, cardW - 20, "center")
+                    elseif skin.rarity == "rare" then
+                        love.graphics.setColor(0.35, 0.88, 0.50, 1.0)
+                        love.graphics.printf(I18N.t("rarity_rare"), cx + 10, rowY + 34, cardW - 20, "center")
+                    else
+                        love.graphics.setColor(ui.textSub)
+                        love.graphics.printf(I18N.t("rarity_common"), cx + 10, rowY + 34, cardW - 20, "center")
+                    end
 
-                local prevX, prevW = cx + 18, cardW - 36
-                love.graphics.setColor(ui.bgClear)
-                love.graphics.rectangle("fill", prevX, prevY, prevW, prevH, 10, 10)
-                renderer:renderShopPreview(prevX, prevY, prevW, prevH, sw, sh, "pieces", skin, shopSpinAngle + i * 0.5)
+                    local prevX, prevW = cx + 18, cardW - 36
+                    love.graphics.setColor(ui.bgClear)
+                    love.graphics.rectangle("fill", prevX, prevY, prevW, prevH, 10, 10)
+                    renderer:renderShopPreview(prevX, prevY, prevW, prevH, sw, sh, "pieces", skin, shopSpinAngle + i * 0.5)
 
-                local isSelected = (Config.activePieceSkin == skinId)
-                if skin.unlocked then
-                    drawButton("pskin_" .. skinId, cx + 24, btnY, cardW - 48, btnH,
-                        isSelected and I18N.t("btn_selected") or I18N.t("btn_select"),
-                        {
-                            active = isSelected,
-                            primary = not isSelected,
+                    local isSelected = (Config.activePieceSkin == skinId)
+                    if skin.underRework then
+                        drawButton("pskin_rework_" .. skinId, cx + 24, btnY, cardW - 48, btnH,
+                            I18N.t("btn_rework"),
+                            {
+                                disabled = true,
+                                font = fonts.small,
+                                onClick = function() Sound.play("click") end
+                            }
+                        )
+                    elseif skin.unlocked then
+                        drawButton("pskin_" .. skinId, cx + 24, btnY, cardW - 48, btnH,
+                            isSelected and I18N.t("btn_selected") or I18N.t("btn_select"),
+                            {
+                                active = isSelected,
+                                primary = not isSelected,
+                                onClick = function()
+                                    Sound.play("click")
+                                    Config.activePieceSkin = skinId
+                                    Storage.save()
+                                end
+                            }
+                        )
+                    elseif skin.unlockType == "coins" then
+                        drawButton("pskin_buy_" .. skinId, cx + 24, btnY, cardW - 48, btnH,
+                            I18N.t("btn_buy", skin.price),
+                            {
+                                accent = true,
+                                onClick = function()
+                                    if Config.coins >= skin.price then
+                                        Sound.play("win")
+                                        Config.coins = Config.coins - skin.price
+                                        skin.unlocked = true
+                                        Config.activePieceSkin = skinId
+                                        Storage.save()
+                                    else
+                                        Sound.play("click")
+                                        shopTab = "currency"
+                                    end
+                                end
+                            }
+                        )
+                    elseif skin.unlockType == "ad" then
+                        drawButton("pskin_ad_" .. skinId, cx + 24, btnY, cardW - 48, 46, I18N.t("btn_ad_stub"), {
                             onClick = function()
-                                Sound.play("click")
+                                Sound.play("win")
+                                skin.unlocked = true
                                 Config.activePieceSkin = skinId
                                 Storage.save()
                             end
-                        }
-                    )
-                elseif skin.unlockType == "coins" then
-                    drawButton("pskin_buy_" .. skinId, cx + 24, btnY, cardW - 48, btnH,
-                        I18N.t("btn_buy", skin.price),
-                        {
-                            accent = true,
-                            onClick = function()
-                                if Config.coins >= skin.price then
-                                    Sound.play("win")
-                                    Config.coins = Config.coins - skin.price
-                                    skin.unlocked = true
-                                    Config.activePieceSkin = skinId
-                                    Storage.save()
-                                else
-                                    Sound.play("click")
-                                    shopTab = "currency"
-                                end
-                            end
-                        }
-                    )
-                elseif skin.unlockType == "ad" then
-                    drawButton("pskin_ad_" .. skinId, cx + 24, btnY, cardW - 48, 46, I18N.t("btn_ad_stub"), {
-                        onClick = function()
-                            Sound.play("win")
-                            skin.unlocked = true
-                            Config.activePieceSkin = skinId
-                            Storage.save()
-                        end
-                    })
-                else
-                    drawButton("pskin_ach_" .. skinId, cx + 24, btnY, cardW - 48, 46, I18N.t("btn_ach_stub"), {
-                        font = fonts.small,
-                        onClick = function() Sound.play("click") end
-                    })
+                        })
+                    else
+                        drawButton("pskin_ach_" .. skinId, cx + 24, btnY, cardW - 48, 46, I18N.t("btn_ach_stub"), {
+                            font = fonts.small,
+                            onClick = function() Sound.play("click") end
+                        })
+                    end
                 end
             end
         end
@@ -2272,80 +2337,131 @@ local function drawShopScreen(sw, sh)
 
         for idx, bSkinId in ipairs(Config.boardSkinOrder) do
             local bSkin = Config.boardSkins[bSkinId]
-            local cx = 64 + idx * (cardW + cardGap) - shopScrollX
-            if cx + cardW >= -20 and cx <= sw + 20 then
-                drawPanel(cx, rowY, cardW, cardH)
+            if bSkin then
+                local cx = 64 + idx * (cardW + cardGap) - shopScrollX
+                if cx + cardW >= -20 and cx <= sw + 20 then
+                    drawPanel(cx, rowY, cardW, cardH)
 
-                if bSkin.rarity == "legendary" then
-                    love.graphics.setColor(0.95, 0.76, 0.14, 0.24)
-                    love.graphics.rectangle("fill", cx + 2, rowY + 2, cardW - 4, cardH - 4, 14, 14)
-                    love.graphics.setColor(0.98, 0.82, 0.22, 0.90)
-                    love.graphics.setLineWidth(2)
-                    love.graphics.rectangle("line", cx, rowY, cardW, cardH, 14, 14)
-                end
+                    if bSkin.underRework then
+                        love.graphics.setColor(0.12, 0.13, 0.16, 0.60)
+                        love.graphics.rectangle("fill", cx + 2, rowY + 2, cardW - 4, cardH - 4, 14, 14)
+                        love.graphics.setColor(0.38, 0.40, 0.46, 0.60)
+                        love.graphics.setLineWidth(1.5)
+                        love.graphics.rectangle("line", cx, rowY, cardW, cardH, 14, 14)
+                    elseif bSkin.rarity == "legendary" then
+                        love.graphics.setColor(0.95, 0.76, 0.14, 0.24)
+                        love.graphics.rectangle("fill", cx + 2, rowY + 2, cardW - 4, cardH - 4, 14, 14)
+                        love.graphics.setColor(0.98, 0.82, 0.22, 0.90)
+                        love.graphics.setLineWidth(2)
+                        love.graphics.rectangle("line", cx, rowY, cardW, cardH, 14, 14)
+                    elseif bSkin.rarity == "epic" then
+                        love.graphics.setColor(0.62, 0.24, 0.88, 0.24)
+                        love.graphics.rectangle("fill", cx + 2, rowY + 2, cardW - 4, cardH - 4, 14, 14)
+                        love.graphics.setColor(0.74, 0.36, 0.98, 0.90)
+                        love.graphics.setLineWidth(2)
+                        love.graphics.rectangle("line", cx, rowY, cardW, cardH, 14, 14)
+                    elseif bSkin.rarity == "rare" then
+                        love.graphics.setColor(0.16, 0.70, 0.34, 0.20)
+                        love.graphics.rectangle("fill", cx + 2, rowY + 2, cardW - 4, cardH - 4, 14, 14)
+                        love.graphics.setColor(0.25, 0.88, 0.45, 0.90)
+                        love.graphics.setLineWidth(2)
+                        love.graphics.rectangle("line", cx, rowY, cardW, cardH, 14, 14)
+                    end
 
-                love.graphics.setFont(fonts.btn)
-                love.graphics.setColor(ui.textMain)
-                love.graphics.printf(I18N.t(bSkin.nameKey), cx + 12, rowY + 12, cardW - 24, "center")
+                    love.graphics.setFont(fonts.btn)
+                    if bSkin.underRework then
+                        love.graphics.setColor(0.58, 0.62, 0.68, 1.0)
+                    elseif bSkin.rarity == "legendary" then
+                        love.graphics.setColor(1.00, 0.88, 0.35, 1.0)
+                    elseif bSkin.rarity == "epic" then
+                        love.graphics.setColor(0.85, 0.55, 1.00, 1.0)
+                    elseif bSkin.rarity == "rare" then
+                        love.graphics.setColor(0.40, 0.95, 0.55, 1.0)
+                    else
+                        love.graphics.setColor(ui.textMain)
+                    end
+                    love.graphics.printf(I18N.t(bSkin.nameKey), cx + 12, rowY + 12, cardW - 24, "center")
 
-                if bSkin.upgradeable then
-                    local prof = Config.profile or {}
-                    local wCount = (prof.boardWins and prof.boardWins[bSkinId])
-                                or (prof.skinWins and prof.skinWins[bSkinId]) or 0
                     love.graphics.setFont(fonts.small)
-                    love.graphics.setColor(0.98, 0.84, 0.28, 1.0)
-                    love.graphics.printf(I18N.t("skin_upgrade_hint", math.min(10, wCount)), cx + 10, rowY + 34, cardW - 20, "center")
-                end
+                    if bSkin.underRework then
+                        love.graphics.setColor(0.85, 0.45, 0.35, 1.0)
+                        love.graphics.printf(I18N.t("btn_rework"), cx + 10, rowY + 34, cardW - 20, "center")
+                    elseif bSkin.upgradeable then
+                        local prof = Config.profile or {}
+                        local wCount = (prof.boardWins and prof.boardWins[bSkinId])
+                                    or (prof.skinWins and prof.skinWins[bSkinId]) or 0
+                        love.graphics.setColor(0.98, 0.84, 0.28, 1.0)
+                        love.graphics.printf(I18N.t("skin_upgrade_hint", math.min(10, wCount)), cx + 10, rowY + 34, cardW - 20, "center")
+                    elseif bSkin.rarity == "legendary" then
+                        love.graphics.setColor(0.98, 0.84, 0.28, 1.0)
+                        love.graphics.printf(I18N.t("rarity_legendary"), cx + 10, rowY + 34, cardW - 20, "center")
+                    elseif bSkin.rarity == "rare" then
+                        love.graphics.setColor(0.35, 0.88, 0.50, 1.0)
+                        love.graphics.printf(I18N.t("rarity_rare"), cx + 10, rowY + 34, cardW - 20, "center")
+                    else
+                        love.graphics.setColor(ui.textSub)
+                        love.graphics.printf(I18N.t("rarity_common"), cx + 10, rowY + 34, cardW - 20, "center")
+                    end
 
-                local prevX, prevW = cx + 18, cardW - 36
-                love.graphics.setColor(ui.bgClear)
-                love.graphics.rectangle("fill", prevX, prevY, prevW, prevH, 10, 10)
-                renderer:renderShopPreview(prevX, prevY, prevW, prevH, sw, sh, "board_skin", {
-                    isRound = (Config.boardShape == "round"),
-                    style = bSkin.style,
-                    baseColor = bSkin.baseColor,
-                    pegColor = bSkin.pegColor,
-                    woodStrength = bSkin.woodStrength
-                }, shopSpinAngle + idx * 0.4)
+                    local prevX, prevW = cx + 18, cardW - 36
+                    love.graphics.setColor(ui.bgClear)
+                    love.graphics.rectangle("fill", prevX, prevY, prevW, prevH, 10, 10)
+                    renderer:renderShopPreview(prevX, prevY, prevW, prevH, sw, sh, "board_skin", {
+                        isRound = (Config.boardShape == "round"),
+                        style = bSkin.style,
+                        baseColor = bSkin.baseColor,
+                        pegColor = bSkin.pegColor,
+                        woodStrength = bSkin.woodStrength
+                    }, shopSpinAngle + idx * 0.4)
 
-                local isSelected = (Config.activeBoardSkin == bSkinId)
-                if bSkin.unlocked then
-                    drawButton("bskin_" .. bSkinId, cx + 24, btnY, cardW - 48, btnH,
-                        isSelected and I18N.t("btn_selected") or I18N.t("btn_select"),
-                        {
-                            active = isSelected,
-                            primary = not isSelected,
-                            onClick = function()
-                                Config.activeBoardSkin = bSkinId
-                                Sound.playDrop(bSkin.soundType)
-                                Storage.save()
-                            end
-                        }
-                    )
-                elseif bSkin.unlockType == "coins" then
-                    drawButton("bskin_buy_" .. bSkinId, cx + 24, btnY, cardW - 48, btnH,
-                        I18N.t("btn_buy", bSkin.price),
-                        {
-                            accent = true,
-                            onClick = function()
-                                if Config.coins >= bSkin.price then
-                                    Config.coins = Config.coins - bSkin.price
-                                    bSkin.unlocked = true
+                    local isSelected = (Config.activeBoardSkin == bSkinId)
+                    if bSkin.underRework then
+                        drawButton("bskin_rework_" .. bSkinId, cx + 24, btnY, cardW - 48, btnH,
+                            I18N.t("btn_rework"),
+                            {
+                                disabled = true,
+                                font = fonts.small,
+                                onClick = function() Sound.play("click") end
+                            }
+                        )
+                    elseif bSkin.unlocked then
+                        drawButton("bskin_" .. bSkinId, cx + 24, btnY, cardW - 48, btnH,
+                            isSelected and I18N.t("btn_selected") or I18N.t("btn_select"),
+                            {
+                                active = isSelected,
+                                primary = not isSelected,
+                                onClick = function()
                                     Config.activeBoardSkin = bSkinId
                                     Sound.playDrop(bSkin.soundType)
                                     Storage.save()
-                                else
-                                    Sound.play("click")
-                                    shopTab = "currency"
                                 end
-                            end
-                        }
-                    )
-                else
-                    drawButton("bskin_ach_" .. bSkinId, cx + 24, btnY, cardW - 48, btnH, I18N.t("btn_ach_stub"), {
-                        font = fonts.small,
-                        onClick = function() Sound.play("click") end
-                    })
+                            }
+                        )
+                    elseif bSkin.unlockType == "coins" then
+                        drawButton("bskin_buy_" .. bSkinId, cx + 24, btnY, cardW - 48, btnH,
+                            I18N.t("btn_buy", bSkin.price),
+                            {
+                                accent = true,
+                                onClick = function()
+                                    if Config.coins >= bSkin.price then
+                                        Config.coins = Config.coins - bSkin.price
+                                        bSkin.unlocked = true
+                                        Config.activeBoardSkin = bSkinId
+                                        Sound.playDrop(bSkin.soundType)
+                                        Storage.save()
+                                    else
+                                        Sound.play("click")
+                                        shopTab = "currency"
+                                    end
+                                end
+                            }
+                        )
+                    else
+                        drawButton("bskin_ach_" .. bSkinId, cx + 24, btnY, cardW - 48, btnH, I18N.t("btn_ach_stub"), {
+                            font = fonts.small,
+                            onClick = function() Sound.play("click") end
+                        })
+                    end
                 end
             end
         end

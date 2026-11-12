@@ -96,11 +96,15 @@ function Storage.load()
     if data.boardShape == "round" or data.boardShape == "square" then
         Config.boardShape = data.boardShape
     end
-    if type(data.activePieceSkin) == "string" and Config.pieceSkins[data.activePieceSkin] then
+    if type(data.activePieceSkin) == "string" and Config.pieceSkins[data.activePieceSkin] and not Config.pieceSkins[data.activePieceSkin].underRework then
         Config.activePieceSkin = data.activePieceSkin
+    else
+        Config.activePieceSkin = "classic_bw"
     end
-    if type(data.activeBoardSkin) == "string" and Config.boardSkins[data.activeBoardSkin] then
+    if type(data.activeBoardSkin) == "string" and Config.boardSkins[data.activeBoardSkin] and not Config.boardSkins[data.activeBoardSkin].underRework then
         Config.activeBoardSkin = data.activeBoardSkin
+    else
+        Config.activeBoardSkin = "dark_wood"
     end
     if type(data.activeUITheme) == "string" and Config.uiThemes[data.activeUITheme] then
         Config.activeUITheme = data.activeUITheme
@@ -119,14 +123,14 @@ function Storage.load()
     end
     if type(data.unlockedPieces) == "table" then
         for id, unlocked in pairs(data.unlockedPieces) do
-            if Config.pieceSkins[id] and unlocked then
+            if Config.pieceSkins[id] and not Config.pieceSkins[id].underRework and unlocked then
                 Config.pieceSkins[id].unlocked = true
             end
         end
     end
     if type(data.unlockedBoards) == "table" then
         for id, unlocked in pairs(data.unlockedBoards) do
-            if Config.boardSkins[id] and unlocked then
+            if Config.boardSkins[id] and not Config.boardSkins[id].underRework and unlocked then
                 Config.boardSkins[id].unlocked = true
             end
         end

@@ -400,7 +400,7 @@ local function triggerMove(gx, gz, fromNetwork, gy)
 
     hoveredX, hoveredZ, hoveredY = nil, nil, nil
     turnBannerPulse = 1.0
-    local _, targetY, _ = renderer:gridToWorldXYZ(res.pos.x, res.pos.y, res.pos.z)
+    local _, targetY, _ = renderer:gridToWorldXYZ(res.pos.x, res.pos.y, res.pos.z, Config.getPieceSkin())
 
     if Config.animateDrops then
         activeDrop = {
@@ -487,6 +487,40 @@ function love.load()
     renderer      = Renderer3D.new()
     gameLogic     = BoardLogic.new()
     menuDemoLogic = createMittelspielBoard()
+
+    local isCI = false
+    if arg then
+        for _, a in ipairs(arg) do
+            if a == "--ci-test" then isCI = true break end
+        end
+    end
+    if isCI then
+        print("[CI-TEST] Starting automated smoke tests...")
+        for id, bskin in pairs(Config.boardSkins) do
+            print("[CI-TEST] Testing boardSkin: " .. id)
+            renderer:renderShopPreview(0, 0, 200, 200, 800, 600, "board_skin", bskin, 0.5)
+        end
+        for id, pskin in pairs(Config.pieceSkins) do
+            print("[CI-TEST] Testing pieceSkin: " .. id)
+            renderer:renderShopPreview(0, 0, 200, 200, 800, 600, "pieces", pskin, 0.5)
+        end
+        assert(gameLogic:getNextEmptyY(1, 1) == 1)
+        Config.activeBoardSkin = "manhattan"
+        renderer:renderScene(800, 600, {
+            config = Config, logic = gameLogic, maxPly = 0, showCoords = true, coordFont = fonts.coord
+        })
+        Config.activeBoardSkin = "japanese_roof"
+        renderer:renderScene(800, 600, {
+            config = Config, logic = gameLogic, maxPly = 0, showCoords = true, coordFont = fonts.coord
+        })
+        Config.activeBoardSkin = "forest_glade"
+        Config.profile.boardWins = { forest_glade = 10 }
+        renderer:renderScene(800, 600, {
+            config = Config, logic = gameLogic, maxPly = 0, showCoords = true, coordFont = fonts.coord
+        })
+        print("[CI-TEST] ALL TESTS PASSED SUCCESSFULLY!")
+        love.event.quit(0)
+    end
 end
 
 function love.update(dt)
@@ -1453,9 +1487,13 @@ local function drawProfileModal(sw, sh)
             end
 
             if m.movesList and #m.movesList > 0 then
-                table.insert(uiButtons, {
-                    id = "prof_replay_" .. idx,
-                    x = listX, y = myY, w = listW - 8, h = itemH - 2,
+                local linkW = 96
+                local linkH = 26
+                local linkX = listX + listW - linkW - 4
+                local linkY = myY + 5
+                drawButton("prof_replay_" .. idx, linkX, linkY, linkW, linkH, I18N.t("replay_match_btn"), {
+                    font = fonts.small,
+                    primary = true,
                     onClick = function()
                         Sound.play("click")
                         isReplayMode = true
@@ -1492,7 +1530,7 @@ local function drawProfileModal(sw, sh)
         end
     end
 
-    -- Achievements (clickable icon badges!)
+    -- Achievements (отображаем только открытые ачивки, нераскрытые скрыты)
     love.graphics.setFont(fonts.btn)
     love.graphics.setColor(ui.textMain)
     love.graphics.print(I18N.t("profile_achievements"), px + 30, py + 356)
@@ -1511,27 +1549,39 @@ local function drawProfileModal(sw, sh)
         { id = "pioneer_1000",   icon = "#1K", key = "ach_pioneer_1000", desc = "ach_desc_pioneer_1000" },
         { id = "tournament_win", icon = "🏆", key = "ach_tournament_win", desc = "ach_desc_tournament_win" }
     }
-    local badgeSize = 54
-    local gap = 12
-    for i, a in ipairs(achList) do
-        local abx = px + 30 + (i - 1) * (badgeSize + gap)
-        local aby = py + 382
-        local done = p.achievements and p.achievements[a.id]
-        love.graphics.setColor(done and { 0.22, 0.68, 0.44, 1.0 } or ui.btnDefault)
-        love.graphics.rectangle("fill", abx, aby, badgeSize, 42, 8, 8)
-        love.graphics.setColor(selectedAchievementId == a.id and ui.accentText or ui.panelBorder)
-        love.graphics.rectangle("line", abx, aby, badgeSize, 42, 8, 8)
+    local earnedAchs = {}
+    for _, a in ipairs(achList) do
+        if p.achievements and p.achievements[a.id] then
+            table.insert(earnedAchs, a)
+        end
+    end
+
+    if #earnedAchs == 0 then
         love.graphics.setFont(fonts.small)
-        love.graphics.setColor(ui.textMain)
-        love.graphics.printf(a.icon, abx, aby + 13, badgeSize, "center")
-        table.insert(uiButtons, {
-            id = "ach_badge_" .. a.id,
-            x = abx, y = aby, w = badgeSize, h = 42,
-            onClick = function()
-                Sound.play("click")
-                selectedAchievementId = (selectedAchievementId == a.id) and nil or a.id
-            end
-        })
+        love.graphics.setColor(ui.textSub)
+        love.graphics.print(I18N.t("no_achievements_yet"), px + 30, py + 386)
+    else
+        local badgeSize = 54
+        local gap = 12
+        for i, a in ipairs(earnedAchs) do
+            local abx = px + 30 + (i - 1) * (badgeSize + gap)
+            local aby = py + 382
+            love.graphics.setColor(0.22, 0.68, 0.44, 1.0)
+            love.graphics.rectangle("fill", abx, aby, badgeSize, 42, 8, 8)
+            love.graphics.setColor(selectedAchievementId == a.id and ui.accentText or ui.panelBorder)
+            love.graphics.rectangle("line", abx, aby, badgeSize, 42, 8, 8)
+            love.graphics.setFont(fonts.small)
+            love.graphics.setColor(ui.textMain)
+            love.graphics.printf(a.icon, abx, aby + 13, badgeSize, "center")
+            table.insert(uiButtons, {
+                id = "ach_badge_" .. a.id,
+                x = abx, y = aby, w = badgeSize, h = 42,
+                onClick = function()
+                    Sound.play("click")
+                    selectedAchievementId = (selectedAchievementId == a.id) and nil or a.id
+                end
+            })
+        end
     end
 
     if selectedAchievementId then
@@ -1577,8 +1627,16 @@ local function drawProfileModal(sw, sh)
     })
 
     -- Unified Requests + Friends quick row
+    local combinedRequests = {}
+    for _, name in ipairs(p.incomingRequests or {}) do
+        table.insert(combinedRequests, { name = name, dir = "in" })
+    end
+    for _, name in ipairs(p.sentRequests or {}) do
+        table.insert(combinedRequests, { name = name, dir = "out" })
+    end
+
     local fx = px + 42
-    for idx, req in ipairs(p.friendRequests or {}) do
+    for idx, req in ipairs(combinedRequests) do
         if idx <= 2 then
             love.graphics.setColor(ui.textSub)
             love.graphics.print(req.name .. (req.dir == "out" and " (" .. I18N.t("friend_pending") .. ")" or ""), fx, fy + 38)
@@ -1739,19 +1797,18 @@ local function drawAuthModal(sw, sh)
             onToggle = function() authState.showPassword = not authState.showPassword end
         })
     elseif isRegister then
-        -- Register mode: Username, Email, Password (with Eye), Confirm Password (with Eye). NO Bio field here!
-        drawInputBox("username", "field_username", py + 60, authState.username, false)
-        drawInputBox("email",    "field_email",    py + 132, authState.email,    false)
-        drawInputBox("password", "field_password", py + 204, authState.password, not authState.showPassword, {
+        -- Регистрация: только Логин, Пароль и Подтверждение пароля (без Email)
+        drawInputBox("username", "field_username", py + 72, authState.username, false)
+        drawInputBox("password", "field_password", py + 148, authState.password, not authState.showPassword, {
             isOpen = authState.showPassword,
             onToggle = function() authState.showPassword = not authState.showPassword end
         })
-        drawInputBox("confirmPassword", "field_password_confirm", py + 276, authState.confirmPassword, not authState.showConfirmPassword, {
+        drawInputBox("confirmPassword", "field_password_confirm", py + 224, authState.confirmPassword, not authState.showConfirmPassword, {
             isOpen = authState.showConfirmPassword,
             onToggle = function() authState.showConfirmPassword = not authState.showConfirmPassword end
         })
     elseif isEdit then
-        -- Edit Profile mode: Avatar Photo Upload/Selector + Username + Email + Password (with Eye) + Profile Bio!
+        -- Настройки профиля: Аватар + Логин (смена раз в неделю) + Пароль + О себе
         drawUserAvatar(bx + 28, py + 84, 24, authState.avatarPreset, authState.customAvatarFile)
         drawButton("btn_upload_photo", bx + 66, py + 62, 230, 36, I18N.t("upload_photo_btn"), {
             accent = true,
@@ -1767,19 +1824,32 @@ local function drawAuthModal(sw, sh)
         love.graphics.printf(I18N.t("photo_hint"), bx + 308, py + 62, bw - 308, "left")
 
         drawInputBox("username", "field_username", py + 114, authState.username, false)
-        drawInputBox("email",    "field_email",    py + 184, authState.email,    false)
-        drawInputBox("password", "field_password", py + 254, authState.password, not authState.showPassword, {
+        local curAcc = Config.profile or {}
+        local lastChange = curAcc.lastUsernameChangeTime or 0
+        local now = os.time()
+        local remSec = 7 * 86400 - (now - lastChange)
+        if remSec > 0 and lastChange > 0 then
+            local remDays = math.ceil(remSec / 86400)
+            love.graphics.setFont(fonts.small)
+            love.graphics.setColor(0.95, 0.76, 0.28, 1.0)
+            love.graphics.print(string.format(I18N.t("err_username_cooldown"), remDays), bx + 2, py + 162)
+        end
+
+        drawInputBox("password", "field_password", py + 184, authState.password, not authState.showPassword, {
             isOpen = authState.showPassword,
             onToggle = function() authState.showPassword = not authState.showPassword end
         })
-        drawInputBox("bio",      "field_bio",      py + 324, authState.bio,      false)
+        drawInputBox("bio",      "field_bio",      py + 258, authState.bio,      false)
     end
 
     -- Error message banner if validation failed
     if authState.errorKey then
         love.graphics.setFont(fonts.small)
         love.graphics.setColor(0.95, 0.38, 0.38, 1.0)
-        love.graphics.printf(I18N.t(authState.errorKey), bx, py + ph - 104, bw, "center")
+        local errText = (authState.errorKey == "err_username_cooldown")
+            and string.format(I18N.t(authState.errorKey), authState.errorParam or 7)
+            or I18N.t(authState.errorKey)
+        love.graphics.printf(errText, bx, py + ph - 104, bw, "center")
     end
 
     local btnY = py + ph - 60
@@ -1797,11 +1867,10 @@ local function drawAuthModal(sw, sh)
     drawButton("auth_submit", bx + bw - 220, btnY, 220, 44, I18N.t(submitKey), {
         primary = true,
         onClick = function()
-            local ok, errKey
+            local ok, errKey, errParam
             if isRegister then
                 ok, errKey = Config.registerAccount(
                     authState.username,
-                    authState.email,
                     authState.password,
                     authState.confirmPassword
                 )
@@ -1811,9 +1880,8 @@ local function drawAuthModal(sw, sh)
                     authState.password
                 )
             else
-                ok, errKey = Config.updateRegisteredProfile(
+                ok, errKey, errParam = Config.updateRegisteredProfile(
                     authState.username,
-                    authState.email,
                     authState.password,
                     authState.bio,
                     authState.avatarPreset,
@@ -1829,6 +1897,7 @@ local function drawAuthModal(sw, sh)
             else
                 Sound.play("click")
                 authState.errorKey = errKey
+                authState.errorParam = errParam
             end
         end
     })
@@ -2041,9 +2110,15 @@ local function drawShopScreen(sw, sh)
     love.graphics.setColor(ui.textMain)
     love.graphics.printf(I18N.t("coins_label", Config.coins), sw - 162, 29, 130, "center")
 
-    local cardW, cardH = 260, 430
+    local availH = sh - 100
+    local cardW = 260
+    local cardH = math.floor(math.min(415, availH - 24))
     local cardGap = 26
-    local rowY = (sh - cardH) * 0.5 + 20
+    local rowY = math.floor(92 + math.max(0, (availH - cardH - 20) * 0.5))
+    local prevH = math.floor(cardH - 165)
+    local prevY = rowY + 54
+    local btnY = rowY + cardH - 58
+    local btnH = 44
 
     if shopTab == "pieces" then
         love.graphics.setFont(fonts.small)
@@ -2071,23 +2146,22 @@ local function drawShopScreen(sw, sh)
 
                 love.graphics.setFont(fonts.btn)
                 love.graphics.setColor(ui.textMain)
-                love.graphics.printf(I18N.t(skin.nameKey), cx + 12, rowY + 14, cardW - 24, "center")
+                love.graphics.printf(I18N.t(skin.nameKey), cx + 12, rowY + 12, cardW - 24, "center")
                 if skin.upgradeable then
                     local wCount = (Config.skinWins and Config.skinWins[skinId]) or 0
                     love.graphics.setFont(fonts.small)
                     love.graphics.setColor(0.98, 0.84, 0.28, 1.0)
-                    love.graphics.printf(I18N.t("skin_upgrade_hint", math.min(10, wCount)), cx + 10, rowY + 42, cardW - 20, "center")
+                    love.graphics.printf(I18N.t("skin_upgrade_hint", math.min(10, wCount)), cx + 10, rowY + 34, cardW - 20, "center")
                 end
 
-                local prevX, prevY, prevW, prevH = cx + 18, rowY + 62, cardW - 36, 250
+                local prevX, prevW = cx + 18, cardW - 36
                 love.graphics.setColor(ui.bgClear)
                 love.graphics.rectangle("fill", prevX, prevY, prevW, prevH, 10, 10)
                 renderer:renderShopPreview(prevX, prevY, prevW, prevH, sw, sh, "pieces", skin, shopSpinAngle + i * 0.5)
 
                 local isSelected = (Config.activePieceSkin == skinId)
-                local btnY = rowY + cardH - 68
                 if skin.unlocked then
-                    drawButton("pskin_" .. skinId, cx + 24, btnY, cardW - 48, 46,
+                    drawButton("pskin_" .. skinId, cx + 24, btnY, cardW - 48, btnH,
                         isSelected and I18N.t("btn_selected") or I18N.t("btn_select"),
                         {
                             active = isSelected,
@@ -2100,7 +2174,7 @@ local function drawShopScreen(sw, sh)
                         }
                     )
                 elseif skin.unlockType == "coins" then
-                    drawButton("pskin_buy_" .. skinId, cx + 24, btnY, cardW - 48, 46,
+                    drawButton("pskin_buy_" .. skinId, cx + 24, btnY, cardW - 48, btnH,
                         I18N.t("btn_buy", skin.price),
                         {
                             accent = true,
@@ -2202,11 +2276,28 @@ local function drawShopScreen(sw, sh)
             if cx + cardW >= -20 and cx <= sw + 20 then
                 drawPanel(cx, rowY, cardW, cardH)
 
+                if bSkin.rarity == "legendary" then
+                    love.graphics.setColor(0.95, 0.76, 0.14, 0.24)
+                    love.graphics.rectangle("fill", cx + 2, rowY + 2, cardW - 4, cardH - 4, 14, 14)
+                    love.graphics.setColor(0.98, 0.82, 0.22, 0.90)
+                    love.graphics.setLineWidth(2)
+                    love.graphics.rectangle("line", cx, rowY, cardW, cardH, 14, 14)
+                end
+
                 love.graphics.setFont(fonts.btn)
                 love.graphics.setColor(ui.textMain)
-                love.graphics.printf(I18N.t(bSkin.nameKey), cx + 12, rowY + 18, cardW - 24, "center")
+                love.graphics.printf(I18N.t(bSkin.nameKey), cx + 12, rowY + 12, cardW - 24, "center")
 
-                local prevX, prevY, prevW, prevH = cx + 18, rowY + 62, cardW - 36, 250
+                if bSkin.upgradeable then
+                    local prof = Config.profile or {}
+                    local wCount = (prof.boardWins and prof.boardWins[bSkinId])
+                                or (prof.skinWins and prof.skinWins[bSkinId]) or 0
+                    love.graphics.setFont(fonts.small)
+                    love.graphics.setColor(0.98, 0.84, 0.28, 1.0)
+                    love.graphics.printf(I18N.t("skin_upgrade_hint", math.min(10, wCount)), cx + 10, rowY + 34, cardW - 20, "center")
+                end
+
+                local prevX, prevW = cx + 18, cardW - 36
                 love.graphics.setColor(ui.bgClear)
                 love.graphics.rectangle("fill", prevX, prevY, prevW, prevH, 10, 10)
                 renderer:renderShopPreview(prevX, prevY, prevW, prevH, sw, sh, "board_skin", {
@@ -2218,9 +2309,8 @@ local function drawShopScreen(sw, sh)
                 }, shopSpinAngle + idx * 0.4)
 
                 local isSelected = (Config.activeBoardSkin == bSkinId)
-                local btnY = rowY + cardH - 68
                 if bSkin.unlocked then
-                    drawButton("bskin_" .. bSkinId, cx + 24, btnY, cardW - 48, 46,
+                    drawButton("bskin_" .. bSkinId, cx + 24, btnY, cardW - 48, btnH,
                         isSelected and I18N.t("btn_selected") or I18N.t("btn_select"),
                         {
                             active = isSelected,
@@ -2233,7 +2323,7 @@ local function drawShopScreen(sw, sh)
                         }
                     )
                 elseif bSkin.unlockType == "coins" then
-                    drawButton("bskin_buy_" .. bSkinId, cx + 24, btnY, cardW - 48, 46,
+                    drawButton("bskin_buy_" .. bSkinId, cx + 24, btnY, cardW - 48, btnH,
                         I18N.t("btn_buy", bSkin.price),
                         {
                             accent = true,
@@ -2252,7 +2342,7 @@ local function drawShopScreen(sw, sh)
                         }
                     )
                 else
-                    drawButton("bskin_ach_" .. bSkinId, cx + 24, btnY, cardW - 48, 46, I18N.t("btn_ach_stub"), {
+                    drawButton("bskin_ach_" .. bSkinId, cx + 24, btnY, cardW - 48, btnH, I18N.t("btn_ach_stub"), {
                         font = fonts.small,
                         onClick = function() Sound.play("click") end
                     })
@@ -2275,25 +2365,24 @@ local function drawShopScreen(sw, sh)
                 love.graphics.setColor(ui.textMain)
                 love.graphics.printf(I18N.t(th.nameKey), cx + 12, rowY + 18, cardW - 24, "center")
 
-                local prevX, prevY, prevW, prevH = cx + 22, rowY + 66, cardW - 44, 240
+                local prevX, prevW = cx + 22, cardW - 44
                 love.graphics.setColor(th.bgClear)
                 love.graphics.rectangle("fill", prevX, prevY, prevW, prevH, 10, 10)
                 love.graphics.setColor(th.panelBg)
-                love.graphics.rectangle("fill", prevX + 18, prevY + 22, prevW - 36, prevH - 44, 10, 10)
+                love.graphics.rectangle("fill", prevX + 18, prevY + 16, prevW - 36, prevH - 32, 10, 10)
                 love.graphics.setColor(th.panelBorder)
-                love.graphics.rectangle("line", prevX + 18, prevY + 22, prevW - 36, prevH - 44, 10, 10)
+                love.graphics.rectangle("line", prevX + 18, prevY + 16, prevW - 36, prevH - 32, 10, 10)
 
                 love.graphics.setColor(th.btnPrimary)
-                love.graphics.rectangle("fill", prevX + 34, prevY + 52, prevW - 68, 42, 8, 8)
+                love.graphics.rectangle("fill", prevX + 34, prevY + 32, prevW - 68, 32, 8, 8)
                 love.graphics.setColor(th.btnDefault)
-                love.graphics.rectangle("fill", prevX + 34, prevY + 106, prevW - 68, 38, 8, 8)
+                love.graphics.rectangle("fill", prevX + 34, prevY + 74, prevW - 68, 30, 8, 8)
                 love.graphics.setColor(th.btnAccent)
-                love.graphics.rectangle("fill", prevX + 34, prevY + 154, prevW - 68, 38, 8, 8)
+                love.graphics.rectangle("fill", prevX + 34, prevY + 114, prevW - 68, 30, 8, 8)
 
                 local isSelected = (Config.activeUITheme == themeId)
-                local btnY = rowY + cardH - 68
                 if th.unlocked then
-                    drawButton("uitheme_" .. themeId, cx + 24, btnY, cardW - 48, 46,
+                    drawButton("uitheme_" .. themeId, cx + 24, btnY, cardW - 48, btnH,
                         isSelected and I18N.t("btn_selected") or I18N.t("btn_select"),
                         {
                             active = isSelected,
@@ -2306,7 +2395,7 @@ local function drawShopScreen(sw, sh)
                         }
                     )
                 elseif th.unlockType == "coins" then
-                    drawButton("uitheme_buy_" .. themeId, cx + 24, btnY, cardW - 48, 46,
+                    drawButton("uitheme_buy_" .. themeId, cx + 24, btnY, cardW - 48, btnH,
                         I18N.t("btn_buy", th.price),
                         {
                             accent = true,
@@ -2325,7 +2414,7 @@ local function drawShopScreen(sw, sh)
                         }
                     )
                 else
-                    drawButton("uitheme_ach_" .. themeId, cx + 24, btnY, cardW - 48, 46, I18N.t("btn_ach_stub"), {
+                    drawButton("uitheme_ach_" .. themeId, cx + 24, btnY, cardW - 48, btnH, I18N.t("btn_ach_stub"), {
                         font = fonts.small,
                         onClick = function() Sound.play("click") end
                     })
@@ -2607,7 +2696,10 @@ end
 function love.draw()
     local sw, sh, uiScale, realW, realH = getUIScaleAndDims()
     local ui = Config.getUITheme()
-    love.graphics.clear(ui.bgClear[1], ui.bgClear[2], ui.bgClear[3], 1.0, true, true)
+    local clearCol = (currentScreen == "game" and Config.activeBoardSkin == "manhattan")
+        and { 0.015, 0.020, 0.038, 1.0 }
+        or ui.bgClear
+    love.graphics.clear(clearCol[1], clearCol[2], clearCol[3], 1.0, true, true)
     uiButtons = {}
 
     if currentScreen == "game" then
@@ -2996,9 +3088,9 @@ function love.keypressed(key, scancode)
             if authState.mode == "login" then
                 order = { "username", "password" }
             elseif authState.mode == "register" then
-                order = { "username", "email", "password", "confirmPassword" }
+                order = { "username", "password", "confirmPassword" }
             else
-                order = { "username", "email", "password", "bio" }
+                order = { "username", "password", "bio" }
             end
             for i, name in ipairs(order) do
                 if name == authState.activeField then

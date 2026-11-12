@@ -149,13 +149,11 @@ local SHADER_PIXEL = [[
             surfaceAlbedo = mix(doughColor, glazeColor, icingMask);
             specFactor = mix(0.14, 0.92, icingMask);
         } else if (u_materialType > 1.5 && u_materialType < 2.5) {
-            // 2: Веточки Ёлки (Pine Tree Tier with needles & snowy frost tips)
-            float rad = length(v_localPos.xz);
-            float needle = woodNoise3(vec3(v_localPos.x * 28.0, v_localPos.y * 18.0, v_localPos.z * 28.0));
-            vec3 pineBase = mix(u_baseColor.rgb * 0.72, u_baseColor.rgb * 1.24, needle);
-            float snowTip = smoothstep(0.34, 0.50, rad + needle * 0.08) * smoothstep(-0.02, 0.12, N.y);
-            surfaceAlbedo = mix(pineBase, vec3(0.92, 0.96, 1.00), snowTip * 0.58);
-            specFactor = mix(0.22, 0.55, snowTip);
+            // 2: Сочные еловые иголки (Vibrant Pine Needles - Emerald Green vs Royal Blue)
+            float needle = woodNoise3(vec3(v_localPos.x * 32.0, v_localPos.y * 18.0, v_localPos.z * 32.0));
+            vec3 pineBase = mix(u_baseColor.rgb * 0.88, u_baseColor.rgb * 1.25, needle);
+            surfaceAlbedo = pineBase;
+            specFactor = 0.35;
         } else if (u_materialType > 2.5 && u_materialType < 3.5) {
             // 3: Ядерный Уран (Glowing & Blinking Radioactive Uranium-235)
             float radPulse = 0.55 + 0.45 * sin(u_time * 5.2);
@@ -284,18 +282,27 @@ local SHADER_PIXEL = [[
             extraGlow += vec3(1.0, 0.14, 0.10) * pulse * 0.95;
             specFactor = 0.9;
         } else if (u_materialType > 12.5 && u_materialType < 13.5) {
-            // 13: Японская традиционная черепичная крыша (пагода)
-            if (N.y > 0.2) {
-                float tileRib = 0.5 + 0.5 * sin(v_localPos.x * 28.0) * sin(v_localPos.z * 28.0);
-                vec3 slateDark = vec3(0.11, 0.13, 0.18);
-                vec3 slateLight = vec3(0.24, 0.28, 0.36);
-                surfaceAlbedo = mix(slateDark, slateLight, tileRib);
-                float edgeMask = smoothstep(0.38, 0.48, max(abs(v_localPos.x), abs(v_localPos.z)));
-                surfaceAlbedo = mix(surfaceAlbedo, vec3(0.76, 0.18, 0.14), edgeMask * 0.55);
-                specFactor = 0.42;
+            // 13: Традиционная японская черепичная крыша (Кавара) по фото-референсу
+            if (abs(N.z) > 0.65) {
+                // Фронтоны (хафу): белая штукатурка стен (сиккуи) + киноварные красные деревянные балки (бэнгара)
+                float beamV = (abs(fract(v_localPos.x * 2.4) - 0.5) < 0.14) ? 1.0 : 0.0;
+                float beamH = (abs(v_localPos.y + 0.04) < 0.08 || v_localPos.y > 0.38) ? 1.0 : 0.0;
+                float isTimber = max(beamV, beamH);
+                surfaceAlbedo = mix(vec3(0.92, 0.90, 0.88), vec3(0.82, 0.20, 0.14), isTimber);
+                specFactor = 0.22;
+            } else if (N.y > 0.18) {
+                // Скаты крыши: темная сланцевая/глиняная черепица (кавара), ряды полукруглых желобков
+                float tileWave = sin(v_worldPos.z * 16.0);
+                float tileShade = 0.5 + 0.5 * tileWave;
+                float rowStep = fract(v_worldPos.x * 3.4);
+                vec3 darkKawara   = vec3(0.14, 0.16, 0.20);
+                vec3 glazedKawara = vec3(0.26, 0.30, 0.36);
+                surfaceAlbedo = mix(darkKawara, glazedKawara, tileShade * 0.75 + rowStep * 0.25);
+                specFactor = 0.48;
             } else {
-                surfaceAlbedo = vec3(0.26, 0.09, 0.07);
-                specFactor = 0.30;
+                // Карнизы и торцы
+                surfaceAlbedo = vec3(0.18, 0.12, 0.10);
+                specFactor = 0.28;
             }
         } else if (u_materialType > 13.5 && u_materialType < 14.5) {
             // 14: Хэллоуинская тыква с рёбрами и светящейся рожицей
@@ -458,14 +465,22 @@ function Renderer3D:_updateCameraBasis()
     self.camUp    = vNorm(vCross(self.camRight, self.camFwd))
 end
 
+function Renderer3D:pieceWorldY(gy, pieceSkin)
+    local style = pieceSkin and pieceSkin.style or "wood"
+    if style == "pine" then
+        return 0.335 + (gy - 1) * 0.67
+    end
+    return Renderer3D.SLOT_START_Y + (gy - 1) * Renderer3D.SLOT_STEP_Y
+end
+
 function Renderer3D:gridToWorldXZ(gx, gz)
     local half = (Renderer3D.GRID_SIZE + 1) * 0.5
     return (gx - half) * Renderer3D.PEG_SPACING, (gz - half) * Renderer3D.PEG_SPACING
 end
 
-function Renderer3D:gridToWorldXYZ(gx, gy, gz)
+function Renderer3D:gridToWorldXYZ(gx, gy, gz, pieceSkin)
     local wx, wz = self:gridToWorldXZ(gx, gz)
-    local wy = Renderer3D.SLOT_START_Y + (gy - 1) * Renderer3D.SLOT_STEP_Y
+    local wy = self:pieceWorldY(gy, pieceSkin)
     return wx, wy, wz
 end
 
@@ -534,36 +549,38 @@ function Renderer3D:_buildTorusMesh(majorR, minorR, ringSegs, tubeSegs)
     return love.graphics.newMesh(VERTEX_FORMAT, verts, "triangles", "static")
 end
 
--- Конусообразный ярус еловых веток с волнистыми иголками по краю
+-- Конусообразный ярус еловых веток с волнистыми лапами (полная высота 0.67, равная верхушке)
 function Renderer3D:_buildPineTierMesh(ringSegs, tubeSegs)
     local verts = {}
-    local majorR = 0.34
-    local minorR = 0.175
+    local innerR = 0.185 -- диаметр отверстия под штырь (радиус штыря 0.15)
+    local outerR = 0.485 -- размах еловых лап
+    local yTop   = 0.335
+    local yBot   = -0.335
 
     local function getPoint(u, v)
         local cu, su = math.cos(u), math.sin(u)
-        local cv, sv = math.cos(v), math.sin(v)
-        -- Зубчатая форма еловых лап (10 веточек по кругу) + наклон конусом вниз
-        local branchWave = 1.0 + 0.11 * math.cos(u * 10.0) * math.max(0.0, cv)
-        local coneSlope  = -0.09 * math.max(0.0, cv)
-        local r = (majorR + minorR * cv * (1.15 - 0.35 * sv)) * branchWave
+        local wave = 1.0 + 0.13 * math.cos(u * 10.0)
+        local r = innerR + (outerR * wave - innerR) * v
         local px = r * cu
-        local py = minorR * sv * 1.25 + coneSlope
+        local py = yTop + (yBot - yTop) * (v * v)
         local pz = r * su
 
-        local nx = cv * cu
-        local ny = sv * 0.85 + 0.25
-        local nz = cv * su
+        local slope = (yBot - yTop) / (outerR - innerR)
+        local nx = cu * (-slope)
+        local ny = 1.0
+        local nz = su * (-slope)
         local nl = math.sqrt(nx*nx + ny*ny + nz*nz)
         return { px, py, pz, nx/nl, ny/nl, nz/nl }
     end
 
-    for i = 0, ringSegs - 1 do
-        local u0 = (i / ringSegs) * math.pi * 2
-        local u1 = ((i + 1) / ringSegs) * math.pi * 2
-        for j = 0, tubeSegs - 1 do
-            local v0 = (j / tubeSegs) * math.pi * 2
-            local v1 = ((j + 1) / tubeSegs) * math.pi * 2
+    local uSteps = ringSegs or 32
+    local vSteps = tubeSegs or 10
+    for i = 0, uSteps - 1 do
+        local u0 = (i / uSteps) * math.pi * 2
+        local u1 = ((i + 1) / uSteps) * math.pi * 2
+        for j = 0, vSteps - 1 do
+            local v0 = j / vSteps
+            local v1 = (j + 1) / vSteps
 
             local p00 = getPoint(u0, v0)
             local p10 = getPoint(u1, v0)
@@ -577,6 +594,14 @@ function Renderer3D:_buildPineTierMesh(ringSegs, tubeSegs)
             table.insert(verts, p00)
             table.insert(verts, p11)
             table.insert(verts, p01)
+
+            table.insert(verts, { p00[1], p00[2] - 0.04, p00[3], 0, -1, 0 })
+            table.insert(verts, { p11[1], p11[2] - 0.04, p11[3], 0, -1, 0 })
+            table.insert(verts, { p10[1], p10[2] - 0.04, p10[3], 0, -1, 0 })
+
+            table.insert(verts, { p00[1], p00[2] - 0.04, p00[3], 0, -1, 0 })
+            table.insert(verts, { p01[1], p01[2] - 0.04, p01[3], 0, -1, 0 })
+            table.insert(verts, { p11[1], p11[2] - 0.04, p11[3], 0, -1, 0 })
         end
     end
 
@@ -713,25 +738,36 @@ function Renderer3D:_buildUnitBoxMesh()
     return love.graphics.newMesh(VERTEX_FORMAT, verts, "triangles", "static")
 end
 
--- Закрытая конусная верхушка ёлки (полностью накрывает штырь)
+-- Закрытая конусная верхушка ёлки (полностью покрывает штырь, глухая без отверстия, одинаковой высоты 0.68)
 function Renderer3D:_buildPineConeTipMesh(segs)
     local verts = {}
-    local r = 0.44
-    local yBot, yTop = -0.18, 0.40
-    local ny = r / math.sqrt(r*r + (yTop - yBot)^2)
-    local nr = (yTop - yBot) / math.sqrt(r*r + (yTop - yBot)^2)
-    for i = 0, segs - 1 do
-        local a0 = (i / segs) * math.pi * 2
-        local a1 = ((i + 1) / segs) * math.pi * 2
+    local r = 0.46
+    local yBot, yTop = -0.335, 0.345
+    local nSegs = segs or 32
+
+    for i = 0, nSegs - 1 do
+        local a0 = (i / nSegs) * math.pi * 2
+        local a1 = ((i + 1) / nSegs) * math.pi * 2
         local c0, s0 = math.cos(a0), math.sin(a0)
         local c1, s1 = math.cos(a1), math.sin(a1)
-        table.insert(verts, { c0*r, yBot, s0*r, c0*nr, ny, s0*nr })
-        table.insert(verts, { c1*r, yBot, s1*r, c1*nr, ny, s1*nr })
-        table.insert(verts, { 0, yTop, 0, (c0+c1)*0.5*nr, ny, (s0+s1)*0.5*nr })
-        -- Нижняя крышка
+        local w0 = 1.0 + 0.12 * math.cos(a0 * 10.0)
+        local w1 = 1.0 + 0.12 * math.cos(a1 * 10.0)
+        local r0, r1 = r * w0, r * w1
+
+        local nr0 = (yTop - yBot) / math.sqrt(r0*r0 + (yTop - yBot)^2)
+        local ny0 = r0 / math.sqrt(r0*r0 + (yTop - yBot)^2)
+        local nr1 = (yTop - yBot) / math.sqrt(r1*r1 + (yTop - yBot)^2)
+        local ny1 = r1 / math.sqrt(r1*r1 + (yTop - yBot)^2)
+
+        -- Конусная поверхность к острой верхушке
+        table.insert(verts, { c0*r0, yBot, s0*r0, c0*nr0, ny0, s0*nr0 })
+        table.insert(verts, { c1*r1, yBot, s1*r1, c1*nr1, ny1, s1*nr1 })
+        table.insert(verts, { 0, yTop, 0, (c0+c1)*0.5*nr0, ny0, (s0+s1)*0.5*nr0 })
+
+        -- Глухая нижняя плоскость, полностью закрывающая торец штыря
         table.insert(verts, { 0, yBot, 0, 0, -1, 0 })
-        table.insert(verts, { c0*r, yBot, s0*r, 0, -1, 0 })
-        table.insert(verts, { c1*r, yBot, s1*r, 0, -1, 0 })
+        table.insert(verts, { c0*r0, yBot, s0*r0, 0, -1, 0 })
+        table.insert(verts, { c1*r1, yBot, s1*r1, 0, -1, 0 })
     end
     return love.graphics.newMesh(VERTEX_FORMAT, verts, "triangles", "static")
 end
@@ -831,45 +867,142 @@ function Renderer3D:_buildGrassTuftMesh()
     return love.graphics.newMesh(VERTEX_FORMAT, verts, "triangles", "static")
 end
 
--- Изогнутая японская крыша пагоды (не круглая и не квадратная — вогнутые скаты и загнутые вверх углы)
+-- Традиционная японская храмовая крыша (Киридзума / Иримоя) по фото-референсу
 function Renderer3D:_buildJapaneseRoofMesh(gridN)
     local verts = {}
-    local function roofHeight(nx, nz)
-        local r2 = nx*nx + nz*nz
-        local cornerLift = 0.55 * (nx*nx * nz*nz) * 4.0
-        local sag = -0.35 * math.sqrt(r2 + 0.02)
-        return 0.42 + sag + cornerLift
+    local halfSpanX = 2.95
+    local halfSpanZ = 3.10
+    local baseFloorY = -0.26
+    local ridgeY = 0.52
+
+    local function roofSurface(x, z)
+        local u = math.min(1.0, math.abs(x) / halfSpanX)
+        -- Аутентичный японский прогиб "сори": крутой спуск от конька с мягким подъемом на краях карниза
+        local y = ridgeY - 0.68 * math.pow(u, 1.25) + 0.12 * math.pow(u, 4.0)
+        local dy_du = -0.68 * 1.25 * math.pow(math.max(0.001, u), 0.25) + 0.12 * 4.0 * math.pow(u, 3.0)
+        local dy_dx = (x >= 0 and 1 or -1) * (dy_du / halfSpanX)
+        local nx, ny, nz = -dy_dx, 1.0, 0.0
+        local nl = math.sqrt(nx*nx + ny*ny + nz*nz)
+        return x, y, z, nx/nl, ny/nl, nz/nl
     end
-    local function roofOutline(nx, nz)
-        -- Звёздно-изогнутый контур с загнутыми краями
-        local pinch = 1.0 + 0.16 * (nx*nx * nz*nz) * 16.0 - 0.08 * math.cos(math.atan2(nz, nx) * 4.0)
-        return nx * pinch * 0.52, nz * pinch * 0.52
-    end
-    for i = 0, gridN - 1 do
-        for j = 0, gridN - 1 do
-            local x0 = (i / gridN) * 2 - 1
-            local x1 = ((i + 1) / gridN) * 2 - 1
-            local z0 = (j / gridN) * 2 - 1
-            local z1 = ((j + 1) / gridN) * 2 - 1
-            local px00, pz00 = roofOutline(x0, z0); local py00 = roofHeight(x0, z0)
-            local px10, pz10 = roofOutline(x1, z0); local py10 = roofHeight(x1, z0)
-            local px11, pz11 = roofOutline(x1, z1); local py11 = roofHeight(x1, z1)
-            local px01, pz01 = roofOutline(x0, z1); local py01 = roofHeight(x0, z1)
-            table.insert(verts, { px00, py00, pz00, 0, 1, 0 })
-            table.insert(verts, { px10, py10, pz10, 0, 1, 0 })
-            table.insert(verts, { px11, py11, pz11, 0, 1, 0 })
-            table.insert(verts, { px00, py00, pz00, 0, 1, 0 })
-            table.insert(verts, { px11, py11, pz11, 0, 1, 0 })
-            table.insert(verts, { px01, py01, pz01, 0, 1, 0 })
-            -- Толщина крыши снизу
-            table.insert(verts, { px00, py00 - 0.45, pz00, 0, -1, 0 })
-            table.insert(verts, { px11, py11 - 0.45, pz11, 0, -1, 0 })
-            table.insert(verts, { px10, py10 - 0.45, pz10, 0, -1, 0 })
-            table.insert(verts, { px00, py00 - 0.45, pz00, 0, -1, 0 })
-            table.insert(verts, { px01, py01 - 0.45, pz01, 0, -1, 0 })
-            table.insert(verts, { px11, py11 - 0.45, pz11, 0, -1, 0 })
+
+    local nxSteps = 24
+    local nzSteps = 20
+
+    -- 1. Скаты крыши с черепицей
+    for i = 0, nxSteps - 1 do
+        local x0 = -halfSpanX + (i / nxSteps) * (halfSpanX * 2)
+        local x1 = -halfSpanX + ((i + 1) / nxSteps) * (halfSpanX * 2)
+        for j = 0, nzSteps - 1 do
+            local z0 = -halfSpanZ + (j / nzSteps) * (halfSpanZ * 2)
+            local z1 = -halfSpanZ + ((j + 1) / nzSteps) * (halfSpanZ * 2)
+
+            local px0, py0, pz0, nx0, ny0, nz0 = roofSurface(x0, z0)
+            local px1, py1, pz1, nx1, ny1, nz1 = roofSurface(x1, z0)
+            local px2, py2, pz2, nx2, ny2, nz2 = roofSurface(x1, z1)
+            local px3, py3, pz3, nx3, ny3, nz3 = roofSurface(x0, z1)
+
+            table.insert(verts, { px0, py0, pz0, nx0, ny0, nz0 })
+            table.insert(verts, { px1, py1, pz1, nx1, ny1, nz1 })
+            table.insert(verts, { px2, py2, pz2, nx2, ny2, nz2 })
+
+            table.insert(verts, { px0, py0, pz0, nx0, ny0, nz0 })
+            table.insert(verts, { px2, py2, pz2, nx2, ny2, nz2 })
+            table.insert(verts, { px3, py3, pz3, nx3, ny3, nz3 })
         end
     end
+
+    -- 2. Фронтоны (хафу) с белой штукатуркой и красными балками спереди и сзади
+    for _, zSign in ipairs({ -1, 1 }) do
+        local zGable = zSign * halfSpanZ
+        local nzGable = zSign
+        for i = 0, nxSteps - 1 do
+            local x0 = -halfSpanX + (i / nxSteps) * (halfSpanX * 2)
+            local x1 = -halfSpanX + ((i + 1) / nxSteps) * (halfSpanX * 2)
+            local _, yRoof0 = roofSurface(x0, zGable)
+            local _, yRoof1 = roofSurface(x1, zGable)
+
+            if zSign < 0 then
+                table.insert(verts, { x0, baseFloorY, zGable, 0, 0, nzGable })
+                table.insert(verts, { x0, yRoof0,      zGable, 0, 0, nzGable })
+                table.insert(verts, { x1, yRoof1,      zGable, 0, 0, nzGable })
+
+                table.insert(verts, { x0, baseFloorY, zGable, 0, 0, nzGable })
+                table.insert(verts, { x1, yRoof1,      zGable, 0, 0, nzGable })
+                table.insert(verts, { x1, baseFloorY, zGable, 0, 0, nzGable })
+            else
+                table.insert(verts, { x0, baseFloorY, zGable, 0, 0, nzGable })
+                table.insert(verts, { x1, yRoof1,      zGable, 0, 0, nzGable })
+                table.insert(verts, { x0, yRoof0,      zGable, 0, 0, nzGable })
+
+                table.insert(verts, { x0, baseFloorY, zGable, 0, 0, nzGable })
+                table.insert(verts, { x1, baseFloorY, zGable, 0, 0, nzGable })
+                table.insert(verts, { x1, yRoof1,      zGable, 0, 0, nzGable })
+            end
+        end
+    end
+
+    -- 3. Боковые карнизные планки (слева и справа)
+    for _, xSign in ipairs({ -1, 1 }) do
+        local xEave = xSign * halfSpanX
+        local nxEave = xSign
+        for j = 0, nzSteps - 1 do
+            local z0 = -halfSpanZ + (j / nzSteps) * (halfSpanZ * 2)
+            local z1 = -halfSpanZ + ((j + 1) / nzSteps) * (halfSpanZ * 2)
+            local _, yRoof = roofSurface(xEave, z0)
+            if xSign > 0 then
+                table.insert(verts, { xEave, baseFloorY, z0, nxEave, 0, 0 })
+                table.insert(verts, { xEave, yRoof,      z0, nxEave, 0, 0 })
+                table.insert(verts, { xEave, yRoof,      z1, nxEave, 0, 0 })
+
+                table.insert(verts, { xEave, baseFloorY, z0, nxEave, 0, 0 })
+                table.insert(verts, { xEave, yRoof,      z1, nxEave, 0, 0 })
+                table.insert(verts, { xEave, baseFloorY, z1, nxEave, 0, 0 })
+            else
+                table.insert(verts, { xEave, baseFloorY, z0, nxEave, 0, 0 })
+                table.insert(verts, { xEave, yRoof,      z1, nxEave, 0, 0 })
+                table.insert(verts, { xEave, yRoof,      z0, nxEave, 0, 0 })
+
+                table.insert(verts, { xEave, baseFloorY, z0, nxEave, 0, 0 })
+                table.insert(verts, { xEave, baseFloorY, z1, nxEave, 0, 0 })
+                table.insert(verts, { xEave, yRoof,      z1, nxEave, 0, 0 })
+            end
+        end
+    end
+
+    -- 4. Центральный конёк крыши (Мунэ-кавара) — полуцилиндрический валик вдоль Z
+    local ridgeR = 0.14
+    local ridgeSegs = 10
+    for j = 0, nzSteps - 1 do
+        local z0 = -halfSpanZ - 0.08 + (j / nzSteps) * ((halfSpanZ + 0.08) * 2)
+        local z1 = -halfSpanZ - 0.08 + ((j + 1) / nzSteps) * ((halfSpanZ + 0.08) * 2)
+        for s = 0, ridgeSegs - 1 do
+            local a0 = (s / ridgeSegs) * math.pi
+            local a1 = ((s + 1) / ridgeSegs) * math.pi
+            local rx0, ry0 = math.cos(a0) * ridgeR, ridgeY + math.sin(a0) * ridgeR
+            local rx1, ry1 = math.cos(a1) * ridgeR, ridgeY + math.sin(a1) * ridgeR
+            local nr0x, nr0y = math.cos(a0), math.sin(a0)
+            local nr1x, nr1y = math.cos(a1), math.sin(a1)
+
+            table.insert(verts, { rx0, ry0, z0, nr0x, nr0y, 0 })
+            table.insert(verts, { rx1, ry1, z0, nr1x, nr1y, 0 })
+            table.insert(verts, { rx1, ry1, z1, nr1x, nr1y, 0 })
+
+            table.insert(verts, { rx0, ry0, z0, nr0x, nr0y, 0 })
+            table.insert(verts, { rx1, ry1, z1, nr1x, nr1y, 0 })
+            table.insert(verts, { rx0, ry0, z1, nr0x, nr0y, 0 })
+        end
+    end
+
+    -- 5. Нижняя плоскость основания (закрытый пол)
+    table.insert(verts, { -halfSpanX, baseFloorY, -halfSpanZ, 0, -1, 0 })
+    table.insert(verts, {  halfSpanX, baseFloorY,  halfSpanZ, 0, -1, 0 })
+    table.insert(verts, {  halfSpanX, baseFloorY, -halfSpanZ, 0, -1, 0 })
+
+    table.insert(verts, { -halfSpanX, baseFloorY, -halfSpanZ, 0, -1, 0 })
+    table.insert(verts, { -halfSpanX, baseFloorY,  halfSpanZ, 0, -1, 0 })
+    table.insert(verts, {  halfSpanX, baseFloorY,  halfSpanZ, 0, -1, 0 })
+
     return love.graphics.newMesh(VERTEX_FORMAT, verts, "triangles", "static")
 end
 
@@ -1220,7 +1353,7 @@ function Renderer3D:renderScene(screenW, screenH, state)
             local isHovered = (state.hoveredX == gx and state.hoveredZ == gz)
             local pColor    = isHovered and boardSkin.pegHover or boardSkin.pegColor
             local pEmissive = isHovered and { 0.28, 0.20, 0.06 } or { 0.0, 0.0, 0.0 }
-            local pegScaleXZ = (isSkyscraperBoard or isManhattanBoard) and 0.62 or 1.0
+            local pegScaleXZ = isManhattanBoard and 0.28 or (isSkyscraperBoard and 0.52 or 1.0)
 
             if isManhattanBoard then
                 local idx = (gx - 1) * 4 + gz
@@ -1241,19 +1374,21 @@ function Renderer3D:renderScene(screenW, screenH, state)
                     1.35,
                     7.0
                 )
-                -- Медленно мигающий красный маячок на вершине каждого шпиля
+                -- Медленно и плавно мигающий красный маячок на вершине каждого шпиля (авиационный маяк)
+                local t = love.timer.getTime()
+                local beaconPulse = 0.10 + 0.90 * math.pow(math.max(0.0, math.sin(t * 1.5 + idx * 0.4)), 4.0)
                 self:_drawMeshTransform(
                     self.meshSphere,
-                    { wx, topY + 0.05, wz },
-                    { 0.11, 0, 0 },
-                    { 0, 0.11, 0 },
-                    { 0, 0, 0.11 },
-                    { 0.95, 0.12, 0.12, 1.0 },
-                    { 0.35, 0.03, 0.03 },
+                    { wx, topY + 0.04, wz },
+                    { 0.08, 0, 0 },
+                    { 0, 0.08, 0 },
+                    { 0, 0, 0.08 },
+                    { 0.98, 0.12, 0.08, 1.0 },
+                    { 1.4 * beaconPulse, 0.12 * beaconPulse, 0.08 * beaconPulse },
                     0.9,
                     0.0,
                     1.0,
-                    12.0
+                    0.0
                 )
             else
                 self:_drawMeshTransform(
@@ -1310,7 +1445,7 @@ function Renderer3D:renderScene(screenW, screenH, state)
     -- 4. Отрисовка нанизанных на столбики фишек (с учетом отмотки ходов maxPly, вольного режима и особых скинов)
     if state.logic then
         local function drawSinglePiece(gx, gy, gz, player, isCurrentRewindHead, overrideAlpha)
-            local wx, wy, wz = self:gridToWorldXYZ(gx, gy, gz)
+            local wx, wy, wz = self:gridToWorldXYZ(gx, gy, gz, pieceSkin)
             if not overrideAlpha and not isRewound and state.activeDrop and state.activeDrop.x == gx and state.activeDrop.y == gy and state.activeDrop.z == gz then
                 wy = state.activeDrop.currentY
             end
@@ -1325,7 +1460,11 @@ function Renderer3D:renderScene(screenW, screenH, state)
 
             local taperXZ = 1.0
             local scaleY = 1.0
-            if pieceSkin.taperByHeight then
+            if pieceSkin.style == "pine" then
+                -- Елка: нижний ярус самый широкий, верхушка уже, высота всех ярусов одинакова (0.67)
+                taperXZ = 1.30 - (gy - 1) * 0.18
+                scaleY = 1.0
+            elseif pieceSkin.taperByHeight then
                 taperXZ = 1.28 - (gy - 1) * 0.19
             elseif pieceSkin.style == "snowman" then
                 if gy == 1 then
@@ -1365,31 +1504,56 @@ function Renderer3D:renderScene(screenW, screenH, state)
                 matType
             )
 
-            -- Детали снеговика: пуговицы (gy=2), глазки и морковка-нос (gy=3)
+            -- Детали снеговика: пуговицы (gy=2), лицо: глаза, морковка, улыбка (gy=3), цилиндр (gy=4)
             if pieceSkin.style == "snowman" and not overrideAlpha then
                 if gy == 2 then
-                    for _, dy in ipairs({ -0.09, 0.09 }) do
+                    -- 3 угольные пуговицы на груди
+                    for _, dy in ipairs({ -0.10, 0.0, 0.10 }) do
                         self:_drawMeshTransform(
                             self.meshSphere,
-                            { wx, wy + dy, wz + 0.38 },
-                            { 0.08, 0, 0 }, { 0, 0.08, 0 }, { 0, 0, 0.08 },
-                            { 0.08, 0.08, 0.10, 1.0 }, { 0, 0, 0 }, 0.3, 0.0, 1.0, 0.0
+                            { wx + 0.28, wy + dy, wz + 0.28 },
+                            { 0.065, 0, 0 }, { 0, 0.065, 0 }, { 0, 0, 0.065 },
+                            { 0.05, 0.05, 0.06, 1.0 }, { 0, 0, 0 }, 0.4, 0.0, 1.0, 0.0
                         )
                     end
                 elseif gy == 3 then
-                    for _, dx in ipairs({ -0.11, 0.11 }) do
+                    -- Глазки на поверхности головы r = 0.355 (отчетливо видны с камеры)
+                    for _, eyePos in ipairs({
+                        { 0.18, 0.09, 0.31 }, { 0.31, 0.09, 0.18 },
+                        { -0.18, 0.09, -0.31 }, { -0.31, 0.09, -0.18 }
+                    }) do
                         self:_drawMeshTransform(
                             self.meshSphere,
-                            { wx + dx, wy + 0.08, wz + 0.29 },
-                            { 0.06, 0, 0 }, { 0, 0.06, 0 }, { 0, 0, 0.06 },
-                            { 0.05, 0.05, 0.07, 1.0 }, { 0, 0, 0 }, 0.4, 0.0, 1.0, 0.0
+                            { wx + eyePos[1], wy + eyePos[2], wz + eyePos[3] },
+                            { 0.058, 0, 0 }, { 0, 0.058, 0 }, { 0, 0, 0.058 },
+                            { 0.03, 0.03, 0.04, 1.0 }, { 0, 0, 0 }, 0.6, 0.0, 1.0, 0.0
                         )
                     end
+                    -- Ярко-оранжевая морковка-нос, смотрящая наружу по диагонали
                     self:_drawMeshTransform(
                         self.meshPineConeTip,
-                        { wx, wy - 0.02, wz + 0.34 },
-                        { 0.12, 0, 0 }, { 0, 0, 0.24 }, { 0, -0.12, 0 },
-                        { 0.96, 0.44, 0.08, 1.0 }, { 0, 0, 0 }, 0.3, 0.0, 1.0, 0.0
+                        { wx + 0.28, wy - 0.01, wz + 0.28 },
+                        { 0.14, 0, 0 }, { 0, 0, 0.28 }, { 0, -0.14, 0 },
+                        { 1.00, 0.48, 0.04, 1.0 }, { 0.18, 0.06, 0.0 }, 0.4, 0.0, 1.0, 0.0
+                    )
+                    -- Угольки улыбки
+                    for _, mPos in ipairs({
+                        { 0.15, -0.09, 0.31 }, { 0.24, -0.11, 0.24 }, { 0.31, -0.09, 0.15 }
+                    }) do
+                        self:_drawMeshTransform(
+                            self.meshSphere,
+                            { wx + mPos[1], wy + mPos[2], wz + mPos[3] },
+                            { 0.04, 0, 0 }, { 0, 0.04, 0 }, { 0, 0, 0.04 },
+                            { 0.04, 0.04, 0.05, 1.0 }, { 0, 0, 0 }, 0.4, 0.0, 1.0, 0.0
+                        )
+                    end
+                elseif gy == 4 then
+                    -- Черный цилиндр-шляпа
+                    self:_drawMeshTransform(
+                        self.meshTopHat,
+                        { wx, wy + 0.12, wz },
+                        { 0.65, 0, 0 }, { 0, 0.65, 0 }, { 0, 0, 0.65 },
+                        { 0.08, 0.08, 0.10, 1.0 }, { 0, 0, 0 }, 0.3, 0.0, 1.0, 0.0
                     )
                 end
             end
@@ -1427,9 +1591,12 @@ function Renderer3D:renderScene(screenW, screenH, state)
         end
     end
 
-    -- 4b. Легендарная 3D-бабочка (открывается при 10 победах со скином legendary_butterfly)
-    local bWins = (state.config.skinWins and state.config.skinWins.legendary_butterfly) or 0
-    if pieceSkin.style == "butterfly" and bWins >= 10 then
+    -- 4b. Легендарная 3D-бабочка для травяного поля (открывается при 10 победах на поле forest_glade)
+    local prof = (state.config and state.config.profile) or {}
+    local bWins = (prof.boardWins and prof.boardWins.forest_glade)
+               or (prof.skinWins and prof.skinWins.forest_glade)
+               or 0
+    if boardSkin.style == "forest" and bWins >= 10 then
         local t = love.timer.getTime()
         local bx = math.cos(t * 0.85) * 3.1
         local bz = math.sin(t * 0.85) * 3.1
@@ -1456,25 +1623,6 @@ function Renderer3D:renderScene(screenW, screenH, state)
             { -0.45 * cf, 0.45 * sf, 0 }, { 0.45 * sf, 0.45 * cf, 0 }, { 0, 0, 0.45 },
             { 0.98, 0.78, 0.18, 1.0 }, { 0.25, 0.18, 0.04 }, 0.85, 0.0, 1.0, 17.0
         )
-    end
-
-    -- 4c. Дымка / плывущие облака для японской крыши и небоскрёбов
-    if boardSkin.hasMist then
-        local t = love.timer.getTime()
-        love.graphics.setDepthMode("lequal", false)
-        love.graphics.setBlendMode("alpha")
-        for i = 1, 6 do
-            local cx = ((t * 0.35 + i * 2.7) % 14.0) - 7.0
-            local cz = -3.8 + (i % 3) * 3.4
-            local cy = -1.65 - (i % 2) * 0.55
-            self:_drawMeshTransform(
-                self.meshRoundBase,
-                { cx, cy, cz },
-                { 3.8, 0, 0 }, { 0, 0.32, 0 }, { 0, 0, 2.4 },
-                { 0.86, 0.90, 0.96, 0.24 }, { 0.12, 0.14, 0.18 }, 0.0, 0.0, 1.0, 0.0
-            )
-        end
-        love.graphics.setDepthMode("lequal", true)
     end
 
     -- 5. Победный луч через 4 собранные фишки

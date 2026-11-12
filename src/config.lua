@@ -70,6 +70,7 @@ local Config = {
         draws = 0,
         winStreak = 0,
         skinWins = {},
+        boardWins = {},
         recentMatches = {},
         friends = {},
         incomingRequests = {},
@@ -267,7 +268,6 @@ local Config = {
 
     pieceSkinOrder = {
         "classic_bw",
-        "legendary_butterfly",
         "nuclear_core",
         "pine_tree",
         "snowman",
@@ -312,26 +312,11 @@ local Config = {
             id = "pine_tree",
             nameKey = "skin_pine",
             style = "pine",
-            taperByHeight = true, -- Bottom pieces larger, top pieces smaller -> forms a pine tree!
-            player1Color = { 0.08, 0.72, 0.30, 1.0 }, -- Vibrant Emerald Pine Green
-            player2Color = { 0.14, 0.62, 0.96, 1.0 }, -- Distinct Bright Ice Blue-Spruce
-            woodStrength = 0.70,
-            specular = 0.28,
-            unlocked = true,
-            unlockType = "free",
-            price = 0
-        },
-        legendary_butterfly = {
-            id = "legendary_butterfly",
-            nameKey = "skin_legendary_butterfly",
-            style = "wood",
-            rarity = "legendary",
-            upgradeable = true,
-            winsRequired = 10,
-            player1Color = { 0.98, 0.80, 0.22, 1.0 }, -- Sunlit Imperial Gold
-            player2Color = { 0.18, 0.62, 0.56, 1.0 }, -- Royal Jade Teal
-            woodStrength = 0.45,
-            specular = 0.82,
+            taperByHeight = true, -- Снизу шире, сверху уже -> складывается в 3D-ёлку
+            player1Color = { 0.05, 0.85, 0.28, 1.0 }, -- Яркий насыщенный изумрудно-зеленый
+            player2Color = { 0.08, 0.55, 1.00, 1.0 }, -- Яркий насыщенный королевский синий
+            woodStrength = 0.40,
+            specular = 0.35,
             unlocked = true,
             unlockType = "free",
             price = 0
@@ -525,6 +510,9 @@ local Config = {
             id = "forest_glade",
             nameKey = "board_forest",
             style = "forest",
+            rarity = "legendary",
+            upgradeable = true,
+            winsRequired = 10,
             soundType = "forest",
             baseColor = { 0.20, 0.46, 0.17, 1.0 }, -- Forest grass & moss around trunks
             pegColor  = { 0.35, 0.22, 0.12, 1.0 }, -- Tree trunk bark
@@ -619,11 +607,11 @@ local Config = {
             nameKey = "board_manhattan",
             style = "manhattan",
             soundType = "metal",
-            hasMist = true,
-            baseColor = { 0.14, 0.17, 0.24, 1.0 }, -- Night Manhattan glass towers
-            pegColor  = { 0.65, 0.70, 0.78, 1.0 }, -- Spire antennas with blinking red beacons
+            hasMist = false,
+            baseColor = { 0.08, 0.09, 0.13, 1.0 }, -- Night Manhattan glass towers
+            pegColor  = { 0.65, 0.70, 0.78, 1.0 }, -- Slender spire antennas with blinking red beacons
             pegHover  = { 1.00, 0.45, 0.38, 1.0 },
-            woodStrength = 0.12,
+            woodStrength = 0.08,
             unlocked = true,
             unlockType = "free",
             price = 0
@@ -677,7 +665,7 @@ function Config.validatePassword(pw)
     return hasLetter and hasDigit and hasSpecial
 end
 
-function Config.registerAccount(username, email, password, confirmPassword)
+function Config.registerAccount(username, password, confirmPassword)
     if not Config.validateUsername(username) then
         return false, "err_username"
     end
@@ -686,12 +674,6 @@ function Config.registerAccount(username, email, password, confirmPassword)
         if existingU:lower() == lowerU then
             return false, "err_username_taken"
         end
-        if acc.email and acc.email:lower() == email:lower() then
-            return false, "err_email_taken"
-        end
-    end
-    if not Config.validateEmail(email) then
-        return false, "err_email"
     end
     if not Config.validatePassword(password) then
         return false, "err_password"
@@ -702,31 +684,32 @@ function Config.registerAccount(username, email, password, confirmPassword)
 
     local userNum = FirebaseClient.claimNextUserNumber()
     local newAcc = {
-        username         = username,
-        email            = email,
-        password         = password,
-        bio              = "",
-        avatarPreset     = 1,
-        customAvatarFile = nil,
-        isRegistered     = true,
-        userNumber       = userNum,
-        rating           = 800,
-        ratingHistory    = { 800 },
-        ratings          = { std_bullet = 800, std_blitz = 800, free_bullet = 800, free_blitz = 800 },
-        ratingHistories  = { std_bullet = { 800 }, std_blitz = { 800 }, free_bullet = { 800 }, free_blitz = { 800 } },
-        gamesPlayed      = 0,
-        wins             = 0,
-        losses           = 0,
-        draws            = 0,
-        winStreak        = 0,
-        skinWins         = {},
-        recentMatches    = {},
-        friends          = {},
-        incomingRequests = {},
-        sentRequests     = {},
-        blockedUsers     = {},
-        tournamentHistory = {},
-        achievements     = {
+        username               = username,
+        password               = password,
+        bio                    = "",
+        avatarPreset           = 1,
+        customAvatarFile       = nil,
+        isRegistered           = true,
+        userNumber             = userNum,
+        lastUsernameChangeTime = os.time(),
+        rating                 = 800,
+        ratingHistory          = { 800 },
+        ratings                = { std_bullet = 800, std_blitz = 800, free_bullet = 800, free_blitz = 800 },
+        ratingHistories        = { std_bullet = { 800 }, std_blitz = { 800 }, free_bullet = { 800 }, free_blitz = { 800 } },
+        gamesPlayed            = 0,
+        wins                   = 0,
+        losses                 = 0,
+        draws                  = 0,
+        winStreak              = 0,
+        skinWins               = {},
+        boardWins              = {},
+        recentMatches          = {},
+        friends                = {},
+        incomingRequests       = {},
+        sentRequests           = {},
+        blockedUsers           = {},
+        tournamentHistory      = {},
+        achievements           = {
             bot_easy       = false,
             bot_medium     = false,
             bot_hard       = false,
@@ -740,7 +723,7 @@ function Config.registerAccount(username, email, password, confirmPassword)
     }
     Config.registeredAccounts[username] = newAcc
     Config.profile = newAcc
-    FirebaseClient.registerUser(username, email, password, newAcc)
+    FirebaseClient.registerUser(username, username .. "@connect4.local", password, newAcc)
     return true, nil
 end
 
@@ -750,95 +733,100 @@ function Config.loginAccount(username, password)
             Config.ensureProfileFields(acc)
             Config.profile = acc
             Config.profile.isRegistered = true
-            FirebaseClient.signInUser(acc.email, password)
+            FirebaseClient.signInUser(acc.username .. "@connect4.local", password)
             return true, nil
         end
     end
 
-    -- Fallback: try cross-device login from Firebase Realtime Database + Firebase Auth
+    -- Fallback: try cross-device login from Firebase Realtime Database
     local remoteProf = FirebaseClient.fetchUserProfile(username)
-    if remoteProf and remoteProf.email ~= "" then
-        if FirebaseClient.signInUser(remoteProf.email, password) then
-            local restoredAcc = {
-                username         = remoteProf.username,
-                email            = remoteProf.email,
-                password         = password,
-                bio              = remoteProf.bio or "",
-                avatarPreset     = 1,
-                customAvatarFile = nil,
-                isRegistered     = true,
-                userNumber       = remoteProf.userNumber or 9999,
-                rating           = remoteProf.rating or 800,
-                ratingHistory    = { 800, remoteProf.rating or 800 },
-                ratings          = { std_bullet = 800, std_blitz = remoteProf.rating or 800, free_bullet = 800, free_blitz = 800 },
-                ratingHistories  = { std_bullet = { 800 }, std_blitz = { 800, remoteProf.rating or 800 }, free_bullet = { 800 }, free_blitz = { 800 } },
-                gamesPlayed      = remoteProf.gamesPlayed or 0,
-                wins             = remoteProf.wins or 0,
-                losses           = remoteProf.losses or 0,
-                draws            = remoteProf.draws or 0,
-                winStreak        = 0,
-                skinWins         = {},
-                recentMatches    = {},
-                friends          = {},
-                incomingRequests = {},
-                sentRequests     = {},
-                blockedUsers     = {},
-                tournamentHistory = {},
-                achievements     = {
-                    bot_easy       = false,
-                    bot_medium     = false,
-                    bot_hard       = false,
-                    wins_10        = (remoteProf.wins or 0) >= 10,
-                    wins_100       = (remoteProf.wins or 0) >= 100,
-                    wins_1000      = (remoteProf.wins or 0) >= 1000,
-                    first_friend   = false,
-                    pioneer_1000   = (remoteProf.userNumber or 9999) <= 1000,
-                    tournament_win = false
-                }
+    if remoteProf then
+        local restoredAcc = {
+            username               = remoteProf.username,
+            password               = password,
+            bio                    = remoteProf.bio or "",
+            avatarPreset           = 1,
+            customAvatarFile       = nil,
+            isRegistered           = true,
+            userNumber             = remoteProf.userNumber or 9999,
+            lastUsernameChangeTime = remoteProf.lastUsernameChangeTime or 0,
+            rating                 = remoteProf.rating or 800,
+            ratingHistory          = { 800, remoteProf.rating or 800 },
+            ratings                = { std_bullet = 800, std_blitz = remoteProf.rating or 800, free_bullet = 800, free_blitz = 800 },
+            ratingHistories        = { std_bullet = { 800 }, std_blitz = { 800, remoteProf.rating or 800 }, free_bullet = { 800 }, free_blitz = { 800 } },
+            gamesPlayed            = remoteProf.gamesPlayed or 0,
+            wins                   = remoteProf.wins or 0,
+            losses                 = remoteProf.losses or 0,
+            draws                  = remoteProf.draws or 0,
+            winStreak              = 0,
+            skinWins               = {},
+            boardWins              = {},
+            recentMatches          = {},
+            friends                = {},
+            incomingRequests       = {},
+            sentRequests           = {},
+            blockedUsers           = {},
+            tournamentHistory      = {},
+            achievements           = {
+                bot_easy       = false,
+                bot_medium     = false,
+                bot_hard       = false,
+                wins_10        = (remoteProf.wins or 0) >= 10,
+                wins_100       = (remoteProf.wins or 0) >= 100,
+                wins_1000      = (remoteProf.wins or 0) >= 1000,
+                first_friend   = false,
+                pioneer_1000   = (remoteProf.userNumber or 9999) <= 1000,
+                tournament_win = false
             }
-            Config.registeredAccounts[restoredAcc.username] = restoredAcc
-            Config.profile = restoredAcc
-            return true, nil
-        end
+        }
+        Config.registeredAccounts[restoredAcc.username] = restoredAcc
+        Config.profile = restoredAcc
+        return true, nil
     end
 
     return false, "err_login_failed"
 end
 
-function Config.updateRegisteredProfile(newUsername, newEmail, newPassword, newBio, newAvatarPreset, newCustomAvatarFile)
+function Config.updateRegisteredProfile(newUsername, newPassword, newBio, newAvatarPreset, newCustomAvatarFile)
     local cur = Config.profile
-    if not Config.validateUsername(newUsername) then
-        return false, "err_username"
-    end
-    local lowerU = newUsername:lower()
-    for existingU, acc in pairs(Config.registeredAccounts) do
-        if acc ~= cur and existingU:lower() == lowerU then
-            return false, "err_username_taken"
+    if newUsername ~= cur.username then
+        if not Config.validateUsername(newUsername) then
+            return false, "err_username"
         end
-        if acc ~= cur and acc.email and acc.email:lower() == newEmail:lower() then
-            return false, "err_email_taken"
+        local lowerU = newUsername:lower()
+        for existingU, acc in pairs(Config.registeredAccounts) do
+            if acc ~= cur and existingU:lower() == lowerU then
+                return false, "err_username_taken"
+            end
         end
-    end
-    if not Config.validateEmail(newEmail) then
-        return false, "err_email"
-    end
-    if not Config.validatePassword(newPassword) then
-        return false, "err_password"
+
+        local now = os.time()
+        local lastChange = cur.lastUsernameChangeTime or 0
+        local cooldown = 7 * 86400
+        if (now - lastChange) < cooldown and lastChange > 0 then
+            local remDays = math.ceil((cooldown - (now - lastChange)) / 86400)
+            return false, "err_username_cooldown", remDays
+        end
+        cur.lastUsernameChangeTime = now
+        Config.registeredAccounts[cur.username] = nil
+        cur.username = newUsername
+        Config.registeredAccounts[newUsername] = cur
     end
 
-    Config.registeredAccounts[cur.username] = nil
-    cur.username = newUsername
-    cur.email    = newEmail
-    cur.password = newPassword
-    cur.bio      = newBio or ""
+    if newPassword and #newPassword > 0 and newPassword ~= cur.password then
+        if not Config.validatePassword(newPassword) then
+            return false, "err_password"
+        end
+        cur.password = newPassword
+    end
+    cur.bio = newBio or ""
     if newAvatarPreset then
         cur.avatarPreset = newAvatarPreset
     end
     if newCustomAvatarFile ~= nil then
         cur.customAvatarFile = newCustomAvatarFile
     end
-    Config.registeredAccounts[newUsername] = cur
-    FirebaseClient.syncProfile(newUsername, cur)
+    FirebaseClient.syncProfile(cur.username, cur)
     return true, nil
 end
 
@@ -868,6 +856,7 @@ function Config.ensureProfileFields(p)
 
     p.winStreak         = p.winStreak or 0
     p.skinWins          = p.skinWins or {}
+    p.boardWins         = p.boardWins or {}
     p.recentMatches     = p.recentMatches or {}
     p.friends           = p.friends or {}
     p.incomingRequests  = p.incomingRequests or {}
@@ -903,6 +892,7 @@ function Config.logoutAccount()
         draws            = 0,
         winStreak        = 0,
         skinWins         = {},
+        boardWins        = {},
         recentMatches    = {},
         friends          = {},
         incomingRequests = {},
@@ -948,6 +938,9 @@ function Config.recordMatchResult(mode, winnerPlayer, isDraw, lineTypeKey, total
         if p.isRegistered then
             local sk = Config.activePieceSkin or "classic_bw"
             p.skinWins[sk] = (p.skinWins[sk] or 0) + 1
+            local bsk = Config.activeBoardSkin or "classic_wood"
+            p.boardWins = p.boardWins or {}
+            p.boardWins[bsk] = (p.boardWins[bsk] or 0) + 1
 
             if mode == Config.GameMode.VS_BOT then
                 if Config.botDifficulty == 1 then p.achievements.bot_easy = true end

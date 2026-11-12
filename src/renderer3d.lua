@@ -70,6 +70,8 @@ local SHADER_VERTEX = [[
 
 local SHADER_PIXEL = [[
     uniform LOVE_HIGHP_OR_MEDIUMP vec3  u_eyePos; // отдельная uniform для пиксельного шейдера (WebGL требует одинаковую точность общих uniform)
+    uniform vec2  u_camHorizRight;
+    uniform vec2  u_camHorizFwd;
     uniform vec4  u_baseColor;
     uniform vec3  u_emissive;
     uniform float u_specular;
@@ -394,10 +396,12 @@ local SHADER_PIXEL = [[
             extraGlow += surfaceAlbedo * 0.28;
             specFactor = 0.85;
         } else if (u_materialType > 17.5 && u_materialType < 18.5) {
-            // 18: Бесконечный ночной туман/облака Манхэттена (быстрый 2D-шум, одно направление ветра, плавный уход в горизонт)
-            vec2 windDir = vec2(0.14, 0.06);
-            vec2 uv1 = v_worldPos.xz * 0.24 - windDir * u_cloudTime;
-            vec2 uv2 = v_worldPos.xz * 0.54 - windDir * (u_cloudTime * 1.45) + vec2(3.7, 8.2);
+            // 18: Бесконечный ночной туман/облака Манхэттена (стабилизирован по горизонту — не вращается при орбите камеры, плывёт в 1 сторону)
+            vec2 relXZ = v_worldPos.xz - u_eyePos.xz;
+            vec2 camCloudXZ = vec2(dot(relXZ, u_camHorizRight), dot(relXZ, u_camHorizFwd));
+            vec2 windDir = vec2(0.14, 0.02);
+            vec2 uv1 = camCloudXZ * 0.24 - windDir * u_cloudTime;
+            vec2 uv2 = camCloudXZ * 0.54 - windDir * (u_cloudTime * 1.45) + vec2(3.7, 8.2);
             float n = cloudNoise2(uv1) * 0.66 + cloudNoise2(uv2) * 0.34;
             float distCenter = length(v_worldPos.xz);
             float horizonBlend = smoothstep(9.0, 32.0, distCenter);
@@ -413,6 +417,48 @@ local SHADER_PIXEL = [[
             float layerA = mix(mix(0.14, 0.88, wisps), 0.98, isLowerSea);
             outAlpha = clamp(u_baseColor.a * mix(layerA, 0.94, horizonBlend), 0.0, 1.0);
             return vec4(col + u_emissive * 0.30, outAlpha);
+        } else if (u_materialType > 18.5 && u_materialType < 19.5) {
+            // 19: Квадратные блоки небоскрёбов Манхэттена (Белые = свет ВКЛ, Чёрные = свет ВЫКЛ)
+            bool lightsOn = (u_baseColor.r > 0.45);
+            if (abs(N.y) > 0.5) {
+                float roofTex = woodNoise3(v_localPos * 14.0 + v_worldPos * 2.0);
+                float edgeRim = step(0.35, max(abs(v_localPos.x), abs(v_localPos.z)));
+                if (lightsOn) {
+                    surfaceAlbedo = mix(vec3(0.24, 0.27, 0.34), vec3(0.46, 0.50, 0.58), roofTex * 0.55 + edgeRim * 0.45);
+                    extraGlow += vec3(0.16, 0.14, 0.10) * edgeRim;
+                    specFactor = 0.55;
+                } else {
+                    surfaceAlbedo = mix(vec3(0.05, 0.06, 0.08), vec3(0.10, 0.12, 0.15), roofTex * 0.45 + edgeRim * 0.35);
+                    specFactor = 0.32;
+                }
+            } else {
+                float uFace = (abs(N.x) > 0.5) ? v_localPos.z : v_localPos.x;
+                float cornerPier = step(0.355, abs(uFace));
+                float cols = (uFace + 0.43) / 0.86 * 4.0;
+                float rows = (v_localPos.y + 0.195) / 0.39 * 2.0;
+                float wx = fract(cols);
+                float wy = fract(rows);
+                float winPane = step(0.16, wx) * step(wx, 0.84) * step(0.20, wy) * step(wy, 0.80);
+                vec3 cellId = floor(vec3(cols, rows, v_worldPos.x * 2.3 + v_worldPos.z * 4.1));
+                float cellRnd = woodHash3(cellId);
+                if (lightsOn) {
+                    // Включённый свет: яркие тёплые и прохладные офисные окна + светлый стальной каркас
+                    float isLit = step(0.12, cellRnd) * winPane * (1.0 - cornerPier);
+                    vec3 frameCol = mix(vec3(0.26, 0.30, 0.38), vec3(0.42, 0.46, 0.54), cornerPier);
+                    vec3 winTint  = (cellRnd > 0.78)
+                        ? vec3(0.76, 0.90, 1.00)
+                        : mix(vec3(1.00, 0.82, 0.42), vec3(1.00, 0.94, 0.72), fract(cellRnd * 9.0));
+                    surfaceAlbedo = mix(frameCol, winTint, isLit * 0.95);
+                    extraGlow += winTint * isLit * 0.90;
+                    specFactor = mix(0.84, 0.25, isLit);
+                } else {
+                    // Выключенный свет: тёмное ночное зеркальное стекло без подсветки
+                    vec3 darkGlass = mix(vec3(0.03, 0.04, 0.065), vec3(0.06, 0.08, 0.12), winPane * (0.4 + 0.6 * cellRnd));
+                    vec3 darkPier  = vec3(0.055, 0.065, 0.085);
+                    surfaceAlbedo  = mix(darkGlass, darkPier, cornerPier);
+                    specFactor     = mix(0.88, 0.45, cornerPier);
+                }
+            }
         }
 
         vec3 L1 = normalize(vec3(0.55, 0.78, 0.48));
@@ -468,6 +514,7 @@ function Renderer3D.new()
     self.meshCylinder  = self:_buildUnitCylinderMesh(24)
     self.meshRoundBase    = self:_buildCappedDiscMesh(64)
     self.meshBox          = self:_buildUnitBoxMesh()
+    self.meshSquareBlock  = self:_buildSquareBlockPieceMesh()
     self.meshPineConeTip  = self:_buildPineConeTipMesh(32)
     self.meshStar         = self:_buildStarMesh(0.24, 0.10, 0.075)
     self.meshThinTorus    = self:_buildTorusMesh(0.355, 0.082, 36, 18)
@@ -802,6 +849,76 @@ function Renderer3D:_buildUnitBoxMesh()
         table.insert(verts, { v[2][1], v[2][2], v[2][3], n[1], n[2], n[3] })
         table.insert(verts, { v[3][1], v[3][2], v[3][3], n[1], n[2], n[3] })
 
+        table.insert(verts, { v[1][1], v[1][2], v[1][3], n[1], n[2], n[3] })
+        table.insert(verts, { v[3][1], v[3][2], v[3][3], n[1], n[2], n[3] })
+        table.insert(verts, { v[4][1], v[4][2], v[4][3], n[1], n[2], n[3] })
+    end
+    return love.graphics.newMesh(VERTEX_FORMAT, verts, "triangles", "static")
+end
+
+-- Квадратный блок-фишка со сквозным круглым отверстием под штырь (для Железных блоков и Блоков небоскрёбов)
+function Renderer3D:_buildSquareBlockPieceMesh()
+    local verts = {}
+    local halfW  = 0.43
+    local halfH  = 0.195
+    local innerR = 0.165
+    local segs   = 32 -- кратно 8, чтобы точно попадать в 45° углы квадрата
+
+    local function outerPt(a)
+        local ca, sa = math.cos(a), math.sin(a)
+        local denom = math.max(math.abs(ca), math.abs(sa), 1e-6)
+        local d = halfW / denom
+        return ca * d, sa * d
+    end
+
+    for i = 0, segs - 1 do
+        local a0 = (i / segs) * math.pi * 2
+        local a1 = ((i + 1) / segs) * math.pi * 2
+        local c0, s0 = math.cos(a0), math.sin(a0)
+        local c1, s1 = math.cos(a1), math.sin(a1)
+        local ix0, iz0 = c0 * innerR, s0 * innerR
+        local ix1, iz1 = c1 * innerR, s1 * innerR
+        local ox0, oz0 = outerPt(a0)
+        local ox1, oz1 = outerPt(a1)
+
+        -- Верхняя грань (y = +halfH, N = +Y)
+        table.insert(verts, { ix0,  halfH, iz0, 0,  1, 0 })
+        table.insert(verts, { ox0,  halfH, oz0, 0,  1, 0 })
+        table.insert(verts, { ox1,  halfH, oz1, 0,  1, 0 })
+        table.insert(verts, { ix0,  halfH, iz0, 0,  1, 0 })
+        table.insert(verts, { ox1,  halfH, oz1, 0,  1, 0 })
+        table.insert(verts, { ix1,  halfH, iz1, 0,  1, 0 })
+
+        -- Нижняя грань (y = -halfH, N = -Y)
+        table.insert(verts, { ix0, -halfH, iz0, 0, -1, 0 })
+        table.insert(verts, { ox1, -halfH, oz1, 0, -1, 0 })
+        table.insert(verts, { ox0, -halfH, oz0, 0, -1, 0 })
+        table.insert(verts, { ix0, -halfH, iz0, 0, -1, 0 })
+        table.insert(verts, { ix1, -halfH, iz1, 0, -1, 0 })
+        table.insert(verts, { ox1, -halfH, oz1, 0, -1, 0 })
+
+        -- Внутренний цилиндрический канал под штырь
+        table.insert(verts, { ix0, -halfH, iz0, -c0, 0, -s0 })
+        table.insert(verts, { ix0,  halfH, iz0, -c0, 0, -s0 })
+        table.insert(verts, { ix1,  halfH, iz1, -c1, 0, -s1 })
+        table.insert(verts, { ix0, -halfH, iz0, -c0, 0, -s0 })
+        table.insert(verts, { ix1,  halfH, iz1, -c1, 0, -s1 })
+        table.insert(verts, { ix1, -halfH, iz1, -c1, 0, -s1 })
+    end
+
+    -- 4 ровные внешние боковые грани квадратного блока
+    local hw, hh = halfW, halfH
+    local sideFaces = {
+        { n = {  0, 0,  1 }, v = { { -hw, -hh,  hw }, {  hw, -hh,  hw }, {  hw,  hh,  hw }, { -hw,  hh,  hw } } },
+        { n = {  0, 0, -1 }, v = { {  hw, -hh, -hw }, { -hw, -hh, -hw }, { -hw,  hh, -hw }, {  hw,  hh, -hw } } },
+        { n = {  1, 0,  0 }, v = { {  hw, -hh,  hw }, {  hw, -hh, -hw }, {  hw,  hh, -hw }, {  hw,  hh,  hw } } },
+        { n = { -1, 0,  0 }, v = { { -hw, -hh, -hw }, { -hw, -hh,  hw }, { -hw,  hh,  hw }, { -hw,  hh, -hw } } },
+    }
+    for _, f in ipairs(sideFaces) do
+        local v, n = f.v, f.n
+        table.insert(verts, { v[1][1], v[1][2], v[1][3], n[1], n[2], n[3] })
+        table.insert(verts, { v[2][1], v[2][2], v[2][3], n[1], n[2], n[3] })
+        table.insert(verts, { v[3][1], v[3][2], v[3][3], n[1], n[2], n[3] })
         table.insert(verts, { v[1][1], v[1][2], v[1][3], n[1], n[2], n[3] })
         table.insert(verts, { v[3][1], v[3][2], v[3][3], n[1], n[2], n[3] })
         table.insert(verts, { v[4][1], v[4][2], v[4][3], n[1], n[2], n[3] })
@@ -1157,7 +1274,7 @@ function Renderer3D:pickPegAtScreenPos(mx, my, screenW, screenH, boardLogic, cli
     -- В вольном режиме (без гравитации) сначала проверяем точное 3D-попадание луча в пустые слоты на штырях
     if isFree then
         local bestSlotScore = 1e9
-        local slotRadius = 0.48
+        local slotRadius = 0.44
         for gx = 1, 4 do
             for gz = 1, 4 do
                 local px, pz = self:gridToWorldXZ(gx, gz)
@@ -1174,7 +1291,9 @@ function Renderer3D:pickPegAtScreenPos(mx, my, screenW, screenH, boardLogic, cli
                             local rz = uz - rayDir.z * tProj
                             local dSlot = math.sqrt(rx * rx + ry * ry + rz * rz)
                             if dSlot <= slotRadius then
-                                local score = tProj + dSlot * 1.15
+                                -- Точность наведения по лучу (dSlot) главнее глубины tProj:
+                                -- передние штыри больше не перехватывают курсор, наведённый на 2–4 ряды
+                                local score = dSlot * 8.0 + tProj * 0.25
                                 if score < bestSlotScore then
                                     bestSlotScore = score
                                     bestX, bestZ, bestY = gx, gz, ty
@@ -1190,7 +1309,7 @@ function Renderer3D:pickPegAtScreenPos(mx, my, screenW, screenH, boardLogic, cli
         end
     end
 
-    local hitRadius = isFree and 0.48 or 0.36
+    local hitRadius = isFree and 0.28 or 0.36
 
     for gx = 1, 4 do
         for gz = 1, 4 do
@@ -1278,6 +1397,10 @@ function Renderer3D:_getPieceMaterialAndMesh(pieceSkin, player, gy)
         return 10.0, self.meshSphere
     elseif style == "metal" then
         return 7.0, self.meshTorus
+    elseif style == "iron_block" then
+        return 7.0, self.meshSquareBlock
+    elseif style == "skyscraper_block" then
+        return 19.0, self.meshSquareBlock
     end
     return 0.0, self.meshTorus
 end
@@ -1315,10 +1438,19 @@ function Renderer3D:renderScene(screenW, screenH, state)
     love.graphics.setShader(self.shader)
 
     local animTime = state.staticBoardAnim and 0.0 or love.timer.getTime()
+    local hrLen = math.sqrt(self.camRight.x * self.camRight.x + self.camRight.z * self.camRight.z)
+    local hfLen = math.sqrt(self.camFwd.x * self.camFwd.x + self.camFwd.z * self.camFwd.z)
+    local hrX = (hrLen > 1e-4) and (self.camRight.x / hrLen) or 1.0
+    local hrZ = (hrLen > 1e-4) and (self.camRight.z / hrLen) or 0.0
+    local hfX = (hfLen > 1e-4) and (self.camFwd.x / hfLen) or 0.0
+    local hfZ = (hfLen > 1e-4) and (self.camFwd.z / hfLen) or -1.0
+
     self:_send("u_time",       animTime)
     self:_send("u_cloudTime",  love.timer.getTime())
     self:_send("u_camPos",     { self.camPos.x,   self.camPos.y,   self.camPos.z   })
     self:_send("u_eyePos",     { self.camPos.x,   self.camPos.y,   self.camPos.z   })
+    self:_send("u_camHorizRight", { hrX, hrZ })
+    self:_send("u_camHorizFwd",   { hfX, hfZ })
     self:_send("u_camRight",   { self.camRight.x, self.camRight.y, self.camRight.z })
     self:_send("u_camUp",      { self.camUp.x,    self.camUp.y,    self.camUp.z    })
     self:_send("u_camFwd",     { self.camFwd.x,   self.camFwd.y,   self.camFwd.z   })
@@ -2011,6 +2143,8 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
     self:_send("u_cloudTime",  love.timer.getTime())
     self:_send("u_camPos",     { camPos.x,   camPos.y,   camPos.z   })
     self:_send("u_eyePos",     { camPos.x,   camPos.y,   camPos.z   })
+    self:_send("u_camHorizRight", { 1.0, 0.0 })
+    self:_send("u_camHorizFwd",   { 0.0, -1.0 })
     self:_send("u_camRight",   { camRight.x, camRight.y, camRight.z })
     self:_send("u_camUp",      { camUp.x,    camUp.y,    camUp.z    })
     self:_send("u_camFwd",     { camFwd.x,   camFwd.y,   camFwd.z   })
@@ -2139,8 +2273,8 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
                 )
             end
         else
-            -- Два крутящихся 3D-бублика (первый и второй игрок) с увеличенным зазором, чтобы не пересекались при вращении
-            local s = 1.15
+            -- Два крутящихся 3D-бублика или квадратных блока (первый и второй игрок) с увеличенным зазором, чтобы не пересекались при вращении
+            local s = (itemData.style == "iron_block" or itemData.style == "skyscraper_block") and 1.04 or 1.15
             local ct, st = math.cos(0.45), math.sin(0.45)
             local axX = { ca * s, 0, -sa * s }
             local axY = { sa * st * s, ct * s, ca * st * s }

@@ -293,9 +293,11 @@ local Config = {
         "crimson_cobalt",
         "emerald_gold",
         "gold_silver_rings",
+        "iron_blocks",
         "nuclear_core",
         "pumpkin_halloween",
         "glazed_donuts",
+        "skyscraper_blocks",
         "pine_tree",
         "snowman",
         "thin_rings",
@@ -357,6 +359,19 @@ local Config = {
             unlockType = "coins",
             price = 250
         },
+        iron_blocks = {
+            id = "iron_blocks",
+            nameKey = "skin_iron_blocks",
+            style = "iron_block",
+            rarity = "rare",
+            player1Color = { 0.66, 0.70, 0.76, 1.0 }, -- Brushed Grey Steel Metal
+            player2Color = { 0.44, 0.29, 0.16, 1.0 }, -- Dark Smoked Bronze Metal
+            woodStrength = 0.06,
+            specular = 0.94,
+            unlocked = false,
+            unlockType = "coins",
+            price = 250
+        },
         nuclear_core = {
             id = "nuclear_core",
             nameKey = "skin_nuclear",
@@ -392,6 +407,19 @@ local Config = {
             player2Color = { 0.24, 0.12, 0.06, 1.0 }, -- Dark chocolate glaze on pastry donut
             woodStrength = 0.25,
             specular = 0.78,
+            unlocked = false,
+            unlockType = "coins",
+            price = 500
+        },
+        skyscraper_blocks = {
+            id = "skyscraper_blocks",
+            nameKey = "skin_skyscraper_blocks",
+            style = "skyscraper_block",
+            rarity = "epic",
+            player1Color = { 0.92, 0.94, 0.98, 1.0 }, -- Lit Skyscraper Blocks (lights ON)
+            player2Color = { 0.09, 0.11, 0.15, 1.0 }, -- Dark Skyscraper Blocks (lights OFF)
+            woodStrength = 0.0,
+            specular = 0.88,
             unlocked = false,
             unlockType = "coins",
             price = 500

@@ -209,6 +209,8 @@ local I18N = {
             skin_beads = "Beads",
             skin_pumpkin = "Halloween Pumpkins",
             skin_snowman = "Snowman (4-Tier)",
+            skin_iron_blocks = "Iron Blocks (Steel & Bronze)",
+            skin_skyscraper_blocks = "Skyscraper Blocks (Lit & Dark)",
             skin_upgrade_hint = "Upgradeable: %d/10 wins for Butterfly FX",
 
             board_snowy = "Snowy Winter",
@@ -511,6 +513,8 @@ local I18N = {
             skin_beads = "Бусины",
             skin_pumpkin = "Тыквы Хэллоуина",
             skin_snowman = "Снеговик (4 яруса)",
+            skin_iron_blocks = "Железные блоки (Сталь и Бронза)",
+            skin_skyscraper_blocks = "Блоки небоскрёбов (Свет вкл/выкл)",
             skin_upgrade_hint = "Улучшаемый: %d/10 побед для спецэффекта Бабочки",
 
             board_snowy = "Снежное поле",
@@ -767,6 +771,8 @@ local I18N = {
             skin_emerald = "Émeraude & Ambre",
             skin_ad = "Néon (Pub)",
             skin_ach = "Ivoire Royal (Succès)",
+            skin_iron_blocks = "Blocs de fer (Acier et Bronze)",
+            skin_skyscraper_blocks = "Blocs gratte-ciel (Allumé / Éteint)",
 
             board_dark_wood = "Bois Foncé",
             board_cake = "Gâteau Sucré (Glaçage & Gaufrette)",

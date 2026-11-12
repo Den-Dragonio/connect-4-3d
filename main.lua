@@ -719,14 +719,18 @@ function love.load()
 
         gameLogic:reset("free")
         gameLogic:placePiece(1, 1, 1)
-        local sxSlot, sySlot = renderer:worldToScreen(
-            select(1, renderer:gridToWorldXYZ(2, 3, 2, Config.pieceSkins.classic_bw)),
-            select(2, renderer:gridToWorldXYZ(2, 3, 2, Config.pieceSkins.classic_bw)),
-            select(3, renderer:gridToWorldXYZ(2, 3, 2, Config.pieceSkins.classic_bw)),
-            800, 600, 0.0, 0.04
-        )
-        local pX, pZ, pY = renderer:pickPegAtScreenPos(sxSlot, sySlot, 800, 600, gameLogic, 0.0, 0.04, Config.pieceSkins.classic_bw)
-        assert(pX == 2 and pZ == 2 and pY == 3, "Expected free-mode hover raycast to resolve slot (2, 3, 2)")
+        for _, tc in ipairs({ { 2, 3, 2 }, { 2, 2, 2 }, { 3, 2, 3 } }) do
+            local sxSlot, sySlot = renderer:worldToScreen(
+                select(1, renderer:gridToWorldXYZ(tc[1], tc[2], tc[3], Config.pieceSkins.classic_bw)),
+                select(2, renderer:gridToWorldXYZ(tc[1], tc[2], tc[3], Config.pieceSkins.classic_bw)),
+                select(3, renderer:gridToWorldXYZ(tc[1], tc[2], tc[3], Config.pieceSkins.classic_bw)),
+                800, 600, 0.0, 0.04
+            )
+            local pX, pZ, pY = renderer:pickPegAtScreenPos(sxSlot, sySlot, 800, 600, gameLogic, 0.0, 0.04, Config.pieceSkins.classic_bw)
+            assert(pX == tc[1] and pZ == tc[3] and pY == tc[2],
+                string.format("Expected free-mode hover raycast to resolve slot (%d,%d,%d), got (%s,%s,%s)",
+                    tc[1], tc[2], tc[3], tostring(pX), tostring(pY), tostring(pZ)))
+        end
         renderer:renderScene(800, 600, {
             config = Config, logic = gameLogic, maxPly = 1,
             hoveredX = 2, hoveredZ = 2, hoveredY = 3,
@@ -738,7 +742,7 @@ function love.load()
         })
         assert(gameLogic.isGameOver == false and gameLogic.winner == BoardLogic.Player.NONE, "Expected ongoing free-mode game before win")
 
-        -- Проверка полного стека gy=1..4, победы и HUD-экрана для 3D-скинов (pine_tree, snowman)
+        -- Проверка полного стека gy=1..4, победы и HUD-экрана для 3D-скинов (pine_tree, snowman, iron_blocks, skyscraper_blocks)
         gameLogic:reset("standard")
         gameLogic:dropPiece(1, 1); gameLogic:dropPiece(2, 1)
         gameLogic:dropPiece(1, 1); gameLogic:dropPiece(2, 1)
@@ -747,8 +751,10 @@ function love.load()
         assert(winRes and winRes.ok and gameLogic.isGameOver, "Expected vertical win in CI test")
         rematchState.timer = 45
         currentScreen = "game"
-        for _, skinId in ipairs({ "pine_tree", "snowman", "classic_bw" }) do
+        for _, skinId in ipairs({ "pine_tree", "snowman", "iron_blocks", "skyscraper_blocks", "classic_bw" }) do
+            assert(Config.pieceSkins[skinId] ~= nil, "Missing expected piece skin: " .. skinId)
             Config.activePieceSkin = skinId
+            renderer:renderShopPreview(0, 0, 120, 120, 800, 600, "pieces", Config.pieceSkins[skinId], 0.4)
             hideWinModal = false
             love.draw()
             hideWinModal = true

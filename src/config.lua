@@ -15,11 +15,14 @@ local Config = {
     },
 
     currentMode = "local_pvp",
+    ruleMode = "standard",      -- "standard" or "free"
+    eloGraphMode = "std_blitz", -- "std_bullet", "std_blitz", "free_bullet", "free_blitz"
     botDifficulty = 2,          -- Default: Medium (2 on 1..3 slider)
     botColorChoice = "white",   -- "white", "black", "random"
     humanPlayer = 1,            -- 1 = White, 2 = Black
     onlineTimeMinutes = 5,      -- 5 minutes (300s) or 1 minute (60s)
-    onlinePlayersCount = 29,    -- Active online players indicator
+    onlinePlayersCount = 1,     -- Real active online players count
+    onlineActiveGames = 0,      -- Real active online games count
 
     cameraSensitivity = 1.0,
     animateDrops = true,
@@ -46,17 +49,43 @@ local Config = {
         avatarPreset = 1,
         customAvatarFile = nil,
         isRegistered = false,
+        userNumber = 9999,
         rating = 800,
         ratingHistory = { 800 },
+        ratings = {
+            std_bullet  = 800,
+            std_blitz   = 800,
+            free_bullet = 800,
+            free_blitz  = 800
+        },
+        ratingHistories = {
+            std_bullet  = { 800 },
+            std_blitz   = { 800 },
+            free_bullet = { 800 },
+            free_blitz  = { 800 }
+        },
         gamesPlayed = 0,
         wins = 0,
         losses = 0,
         draws = 0,
+        winStreak = 0,
+        skinWins = {},
         recentMatches = {},
+        friends = {},
+        incomingRequests = {},
+        sentRequests = {},
+        blockedUsers = {},
+        tournamentHistory = {},
         achievements = {
-            first_win = false,
-            diag_3d   = false,
-            veteran   = false
+            bot_easy       = false,
+            bot_medium     = false,
+            bot_hard       = false,
+            wins_10        = false,
+            wins_100       = false,
+            wins_1000      = false,
+            first_friend   = false,
+            pioneer_1000   = false,
+            tournament_win = false
         }
     },
 
@@ -70,9 +99,13 @@ local Config = {
 
     uiThemeOrder = {
         "minimal_gray",
+        "clean_silver",
+        "white_clean",
+        "black_oled",
+        "new_year",
+        "halloween",
         "wood_vibe",
-        "carbon_dark",
-        "clean_silver"
+        "carbon_dark"
     },
 
     uiThemes = {
@@ -148,17 +181,101 @@ local Config = {
             textMain       = { 0.98, 0.99, 1.00, 1.0 },
             textSub        = { 0.78, 0.81, 0.86, 1.0 },
             accentText     = { 0.90, 0.94, 1.00, 1.0 },
-            unlocked       = false,
-            unlockType     = "ach",
+            unlocked       = true,
+            unlockType     = "free",
+            price          = 0
+        },
+        white_clean = {
+            id = "white_clean",
+            nameKey = "ui_theme_white",
+            bgClear        = { 0.94, 0.95, 0.97, 1.0 },
+            panelBg        = { 0.98, 0.99, 1.00, 0.96 },
+            panelBorder    = { 0.78, 0.81, 0.86, 0.95 },
+            btnDefault     = { 0.90, 0.92, 0.95, 0.96 },
+            btnPrimary     = { 0.24, 0.46, 0.84, 0.98 },
+            btnActive      = { 0.18, 0.62, 0.44, 0.96 },
+            btnAccent      = { 0.35, 0.42, 0.52, 0.96 },
+            btnBorder      = { 0.72, 0.76, 0.82, 0.95 },
+            btnHoverBorder = { 0.20, 0.42, 0.78, 1.0 },
+            textMain       = { 0.12, 0.14, 0.18, 1.0 },
+            textSub        = { 0.38, 0.42, 0.48, 1.0 },
+            accentText     = { 0.16, 0.36, 0.72, 1.0 },
+            unlocked       = true,
+            unlockType     = "free",
+            price          = 0
+        },
+        black_oled = {
+            id = "black_oled",
+            nameKey = "ui_theme_black",
+            bgClear        = { 0.02, 0.02, 0.03, 1.0 },
+            panelBg        = { 0.05, 0.05, 0.07, 0.97 },
+            panelBorder    = { 0.22, 0.23, 0.27, 0.95 },
+            btnDefault     = { 0.09, 0.10, 0.12, 0.96 },
+            btnPrimary     = { 0.20, 0.36, 0.60, 0.98 },
+            btnActive      = { 0.16, 0.54, 0.40, 0.96 },
+            btnAccent      = { 0.28, 0.30, 0.36, 0.96 },
+            btnBorder      = { 0.26, 0.28, 0.33, 0.92 },
+            btnHoverBorder = { 0.85, 0.88, 0.95, 1.0 },
+            textMain       = { 0.96, 0.97, 0.99, 1.0 },
+            textSub        = { 0.60, 0.63, 0.69, 1.0 },
+            accentText     = { 0.72, 0.84, 1.00, 1.0 },
+            unlocked       = true,
+            unlockType     = "free",
+            price          = 0
+        },
+        new_year = {
+            id = "new_year",
+            nameKey = "ui_theme_new_year",
+            effect         = "snow",
+            bgClear        = { 0.08, 0.14, 0.22, 1.0 },
+            panelBg        = { 0.11, 0.18, 0.28, 0.95 },
+            panelBorder    = { 0.60, 0.84, 0.98, 0.92 },
+            btnDefault     = { 0.16, 0.25, 0.38, 0.95 },
+            btnPrimary     = { 0.22, 0.52, 0.78, 0.98 },
+            btnActive      = { 0.18, 0.62, 0.44, 0.96 },
+            btnAccent      = { 0.78, 0.24, 0.28, 0.96 },
+            btnBorder      = { 0.48, 0.72, 0.90, 0.90 },
+            btnHoverBorder = { 0.90, 0.97, 1.00, 1.0 },
+            textMain       = { 0.96, 0.99, 1.00, 1.0 },
+            textSub        = { 0.74, 0.86, 0.96, 1.0 },
+            accentText     = { 0.70, 0.92, 1.00, 1.0 },
+            unlocked       = true,
+            unlockType     = "free",
+            price          = 0
+        },
+        halloween = {
+            id = "halloween",
+            nameKey = "ui_theme_halloween",
+            effect         = "halloween",
+            bgClear        = { 0.08, 0.05, 0.12, 1.0 },
+            panelBg        = { 0.12, 0.08, 0.17, 0.96 },
+            panelBorder    = { 0.88, 0.44, 0.12, 0.92 },
+            btnDefault     = { 0.18, 0.12, 0.25, 0.95 },
+            btnPrimary     = { 0.82, 0.38, 0.10, 0.98 },
+            btnActive      = { 0.54, 0.24, 0.72, 0.96 },
+            btnAccent      = { 0.92, 0.52, 0.14, 0.96 },
+            btnBorder      = { 0.62, 0.32, 0.14, 0.90 },
+            btnHoverBorder = { 1.00, 0.70, 0.24, 1.0 },
+            textMain       = { 0.98, 0.94, 0.88, 1.0 },
+            textSub        = { 0.78, 0.68, 0.84, 1.0 },
+            accentText     = { 1.00, 0.62, 0.20, 1.0 },
+            unlocked       = true,
+            unlockType     = "free",
             price          = 0
         }
     },
 
     pieceSkinOrder = {
         "classic_bw",
-        "glazed_donuts",
-        "pine_tree",
+        "legendary_butterfly",
         "nuclear_core",
+        "pine_tree",
+        "snowman",
+        "pumpkin_halloween",
+        "gold_silver_rings",
+        "thin_rings",
+        "beads",
+        "glazed_donuts",
         "crimson_cobalt",
         "amber_obsidian",
         "emerald_gold",
@@ -196,10 +313,86 @@ local Config = {
             nameKey = "skin_pine",
             style = "pine",
             taperByHeight = true, -- Bottom pieces larger, top pieces smaller -> forms a pine tree!
-            player1Color = { 0.14, 0.54, 0.24, 1.0 }, -- Lush Forest Pine Green
-            player2Color = { 0.20, 0.52, 0.68, 1.0 }, -- Winter Frost Blue-Spruce
+            player1Color = { 0.08, 0.72, 0.30, 1.0 }, -- Vibrant Emerald Pine Green
+            player2Color = { 0.14, 0.62, 0.96, 1.0 }, -- Distinct Bright Ice Blue-Spruce
             woodStrength = 0.70,
             specular = 0.28,
+            unlocked = true,
+            unlockType = "free",
+            price = 0
+        },
+        legendary_butterfly = {
+            id = "legendary_butterfly",
+            nameKey = "skin_legendary_butterfly",
+            style = "wood",
+            rarity = "legendary",
+            upgradeable = true,
+            winsRequired = 10,
+            player1Color = { 0.98, 0.80, 0.22, 1.0 }, -- Sunlit Imperial Gold
+            player2Color = { 0.18, 0.62, 0.56, 1.0 }, -- Royal Jade Teal
+            woodStrength = 0.45,
+            specular = 0.82,
+            unlocked = true,
+            unlockType = "free",
+            price = 0
+        },
+        gold_silver_rings = {
+            id = "gold_silver_rings",
+            nameKey = "skin_gold_silver",
+            style = "metal_ring",
+            player1Color = { 0.96, 0.78, 0.24, 1.0 }, -- Polished Gold
+            player2Color = { 0.82, 0.86, 0.92, 1.0 }, -- Mirror Silver
+            woodStrength = 0.08,
+            specular = 0.95,
+            unlocked = true,
+            unlockType = "free",
+            price = 0
+        },
+        thin_rings = {
+            id = "thin_rings",
+            nameKey = "skin_thin_rings",
+            style = "thin_ring",
+            player1Color = { 0.92, 0.94, 0.96, 1.0 },
+            player2Color = { 0.18, 0.20, 0.24, 1.0 },
+            woodStrength = 0.15,
+            specular = 0.72,
+            unlocked = true,
+            unlockType = "free",
+            price = 0
+        },
+        beads = {
+            id = "beads",
+            nameKey = "skin_beads",
+            style = "bead",
+            player1Color = { 0.96, 0.86, 0.74, 1.0 }, -- Pearl Cream Beads
+            player2Color = { 0.26, 0.42, 0.68, 1.0 }, -- Sapphire Glass Beads
+            woodStrength = 0.15,
+            specular = 0.88,
+            unlocked = true,
+            unlockType = "free",
+            price = 0
+        },
+        pumpkin_halloween = {
+            id = "pumpkin_halloween",
+            nameKey = "skin_pumpkin",
+            style = "pumpkin",
+            player1Color = { 0.96, 0.44, 0.08, 1.0 }, -- Classic Jack-o-Lantern Orange
+            player2Color = { 0.34, 0.18, 0.46, 1.0 }, -- Midnight Witch Pumpkin
+            woodStrength = 0.35,
+            specular = 0.45,
+            unlocked = true,
+            unlockType = "free",
+            price = 0
+        },
+        snowman = {
+            id = "snowman",
+            nameKey = "skin_snowman",
+            style = "snowman",
+            taperByHeight = true,
+            player1Color = { 0.96, 0.98, 1.00, 1.0 }, -- Snow White
+            player2Color = { 0.98, 0.86, 0.28, 1.0 }, -- Warm Golden Yellow
+            woodStrength = 0.20,
+            specular = 0.38,
             unlocked = true,
             unlockType = "free",
             price = 0
@@ -208,6 +401,7 @@ local Config = {
             id = "nuclear_core",
             nameKey = "skin_nuclear",
             style = "nuclear",
+            rarity = "epic",
             player1Color = { 0.28, 1.00, 0.22, 1.0 }, -- Uranium-235 (glowing & pulsing radiation)
             player2Color = { 0.21, 0.23, 0.26, 1.0 }, -- Reactor Graphite (dark carbon moderator)
             woodStrength = 0.45,
@@ -275,9 +469,13 @@ local Config = {
 
     boardSkinOrder = {
         "dark_wood",
+        "forest_glade",
+        "snowy_winter",
+        "japanese_roof",
+        "skyscraper",
+        "manhattan",
         "sweet_cake",
         "metal_steel",
-        "forest_glade",
         "gold_ach",
         "white_wood",
         "obsidian_stub"
@@ -374,6 +572,61 @@ local Config = {
             unlocked = true,
             unlockType = "free",
             price = 0
+        },
+        snowy_winter = {
+            id = "snowy_winter",
+            nameKey = "board_snow",
+            style = "snow",
+            soundType = "forest",
+            baseColor = { 0.94, 0.97, 1.00, 1.0 },
+            pegColor  = { 0.80, 0.88, 0.96, 1.0 },
+            pegHover  = { 0.42, 0.78, 1.00, 1.0 },
+            woodStrength = 0.15,
+            unlocked = true,
+            unlockType = "free",
+            price = 0
+        },
+        japanese_roof = {
+            id = "japanese_roof",
+            nameKey = "board_japanese",
+            style = "japanese_roof",
+            soundType = "wood",
+            hasMist = true,
+            baseColor = { 0.20, 0.23, 0.28, 1.0 }, -- Slate ceramic roof tiles
+            pegColor  = { 0.74, 0.18, 0.16, 1.0 }, -- Vermilion torii-red wooden pillars
+            pegHover  = { 1.00, 0.56, 0.24, 1.0 },
+            woodStrength = 0.45,
+            unlocked = true,
+            unlockType = "free",
+            price = 0
+        },
+        skyscraper = {
+            id = "skyscraper",
+            nameKey = "board_skyscraper",
+            style = "skyscraper",
+            soundType = "metal",
+            hasMist = true,
+            baseColor = { 0.36, 0.46, 0.58, 1.0 }, -- Trade tower glass & steel roof
+            pegColor  = { 0.78, 0.84, 0.90, 1.0 }, -- Radio/spire antennas
+            pegHover  = { 0.40, 0.88, 1.00, 1.0 },
+            woodStrength = 0.15,
+            unlocked = true,
+            unlockType = "free",
+            price = 0
+        },
+        manhattan = {
+            id = "manhattan",
+            nameKey = "board_manhattan",
+            style = "manhattan",
+            soundType = "metal",
+            hasMist = true,
+            baseColor = { 0.14, 0.17, 0.24, 1.0 }, -- Night Manhattan glass towers
+            pegColor  = { 0.65, 0.70, 0.78, 1.0 }, -- Spire antennas with blinking red beacons
+            pegHover  = { 1.00, 0.45, 0.38, 1.0 },
+            woodStrength = 0.12,
+            unlocked = true,
+            unlockType = "free",
+            price = 0
         }
     },
 
@@ -447,6 +700,7 @@ function Config.registerAccount(username, email, password, confirmPassword)
         return false, "err_password_mismatch"
     end
 
+    local userNum = FirebaseClient.claimNextUserNumber()
     local newAcc = {
         username         = username,
         email            = email,
@@ -455,14 +709,34 @@ function Config.registerAccount(username, email, password, confirmPassword)
         avatarPreset     = 1,
         customAvatarFile = nil,
         isRegistered     = true,
+        userNumber       = userNum,
         rating           = 800,
         ratingHistory    = { 800 },
-        gamesPlayed      = Config.profile.gamesPlayed,
-        wins             = Config.profile.wins,
-        losses           = Config.profile.losses,
-        draws            = Config.profile.draws,
-        recentMatches    = Config.profile.recentMatches,
-        achievements     = Config.profile.achievements
+        ratings          = { std_bullet = 800, std_blitz = 800, free_bullet = 800, free_blitz = 800 },
+        ratingHistories  = { std_bullet = { 800 }, std_blitz = { 800 }, free_bullet = { 800 }, free_blitz = { 800 } },
+        gamesPlayed      = 0,
+        wins             = 0,
+        losses           = 0,
+        draws            = 0,
+        winStreak        = 0,
+        skinWins         = {},
+        recentMatches    = {},
+        friends          = {},
+        incomingRequests = {},
+        sentRequests     = {},
+        blockedUsers     = {},
+        tournamentHistory = {},
+        achievements     = {
+            bot_easy       = false,
+            bot_medium     = false,
+            bot_hard       = false,
+            wins_10        = false,
+            wins_100       = false,
+            wins_1000      = false,
+            first_friend   = false,
+            pioneer_1000   = (userNum <= 1000),
+            tournament_win = false
+        }
     }
     Config.registeredAccounts[username] = newAcc
     Config.profile = newAcc
@@ -473,6 +747,7 @@ end
 function Config.loginAccount(username, password)
     for _, acc in pairs(Config.registeredAccounts) do
         if acc.username:lower() == username:lower() and acc.password == password then
+            Config.ensureProfileFields(acc)
             Config.profile = acc
             Config.profile.isRegistered = true
             FirebaseClient.signInUser(acc.email, password)
@@ -492,17 +767,33 @@ function Config.loginAccount(username, password)
                 avatarPreset     = 1,
                 customAvatarFile = nil,
                 isRegistered     = true,
+                userNumber       = remoteProf.userNumber or 9999,
                 rating           = remoteProf.rating or 800,
                 ratingHistory    = { 800, remoteProf.rating or 800 },
+                ratings          = { std_bullet = 800, std_blitz = remoteProf.rating or 800, free_bullet = 800, free_blitz = 800 },
+                ratingHistories  = { std_bullet = { 800 }, std_blitz = { 800, remoteProf.rating or 800 }, free_bullet = { 800 }, free_blitz = { 800 } },
                 gamesPlayed      = remoteProf.gamesPlayed or 0,
                 wins             = remoteProf.wins or 0,
                 losses           = remoteProf.losses or 0,
                 draws            = remoteProf.draws or 0,
+                winStreak        = 0,
+                skinWins         = {},
                 recentMatches    = {},
+                friends          = {},
+                incomingRequests = {},
+                sentRequests     = {},
+                blockedUsers     = {},
+                tournamentHistory = {},
                 achievements     = {
-                    first_win = (remoteProf.wins or 0) > 0,
-                    diag_3d   = false,
-                    veteran   = (remoteProf.gamesPlayed or 0) >= 10
+                    bot_easy       = false,
+                    bot_medium     = false,
+                    bot_hard       = false,
+                    wins_10        = (remoteProf.wins or 0) >= 10,
+                    wins_100       = (remoteProf.wins or 0) >= 100,
+                    wins_1000      = (remoteProf.wins or 0) >= 1000,
+                    first_friend   = false,
+                    pioneer_1000   = (remoteProf.userNumber or 9999) <= 1000,
+                    tournament_win = false
                 }
             }
             Config.registeredAccounts[restoredAcc.username] = restoredAcc
@@ -551,6 +842,47 @@ function Config.updateRegisteredProfile(newUsername, newEmail, newPassword, newB
     return true, nil
 end
 
+function Config.ensureProfileFields(p)
+    if not p then return end
+    p.ratings = p.ratings or {
+        std_bullet  = 800,
+        std_blitz   = p.rating or 800,
+        free_bullet = 800,
+        free_blitz  = 800
+    }
+    p.ratings.std_bullet  = p.ratings.std_bullet  or 800
+    p.ratings.std_blitz   = p.ratings.std_blitz   or (p.rating or 800)
+    p.ratings.free_bullet = p.ratings.free_bullet or 800
+    p.ratings.free_blitz  = p.ratings.free_blitz  or 800
+
+    p.ratingHistories = p.ratingHistories or {
+        std_bullet  = { 800 },
+        std_blitz   = p.ratingHistory or { 800 },
+        free_bullet = { 800 },
+        free_blitz  = { 800 }
+    }
+    p.ratingHistories.std_bullet  = p.ratingHistories.std_bullet  or { 800 }
+    p.ratingHistories.std_blitz   = p.ratingHistories.std_blitz   or { 800 }
+    p.ratingHistories.free_bullet = p.ratingHistories.free_bullet or { 800 }
+    p.ratingHistories.free_blitz  = p.ratingHistories.free_blitz  or { 800 }
+
+    p.winStreak         = p.winStreak or 0
+    p.skinWins          = p.skinWins or {}
+    p.recentMatches     = p.recentMatches or {}
+    p.friends           = p.friends or {}
+    p.incomingRequests  = p.incomingRequests or {}
+    p.sentRequests      = p.sentRequests or {}
+    p.blockedUsers      = p.blockedUsers or {}
+    p.tournamentHistory = p.tournamentHistory or {}
+    p.achievements      = p.achievements or {}
+end
+
+function Config.getEloKey(ruleMode, timeMinutes)
+    local prefix = (ruleMode == "free") and "free" or "std"
+    local suffix = (timeMinutes == 1) and "bullet" or "blitz"
+    return prefix .. "_" .. suffix
+end
+
 function Config.logoutAccount()
     Config.profile = {
         username         = "Guest_" .. tostring(math.random(1000, 9999)),
@@ -560,23 +892,40 @@ function Config.logoutAccount()
         avatarPreset     = 1,
         customAvatarFile = nil,
         isRegistered     = false,
+        userNumber       = 9999,
         rating           = 800,
         ratingHistory    = { 800 },
+        ratings          = { std_bullet = 800, std_blitz = 800, free_bullet = 800, free_blitz = 800 },
+        ratingHistories  = { std_bullet = { 800 }, std_blitz = { 800 }, free_bullet = { 800 }, free_blitz = { 800 } },
         gamesPlayed      = 0,
         wins             = 0,
         losses           = 0,
         draws            = 0,
+        winStreak        = 0,
+        skinWins         = {},
         recentMatches    = {},
+        friends          = {},
+        incomingRequests = {},
+        sentRequests     = {},
+        blockedUsers     = {},
+        tournamentHistory = {},
         achievements     = {
-            first_win = false,
-            diag_3d   = false,
-            veteran   = false
+            bot_easy       = false,
+            bot_medium     = false,
+            bot_hard       = false,
+            wins_10        = false,
+            wins_100       = false,
+            wins_1000      = false,
+            first_friend   = false,
+            pioneer_1000   = false,
+            tournament_win = false
         }
     }
 end
 
-function Config.recordMatchResult(mode, winnerPlayer, isDraw, lineTypeKey, totalHalfMoves, durationSec)
+function Config.recordMatchResult(mode, winnerPlayer, isDraw, lineTypeKey, totalHalfMoves, durationSec, moveHistoryCopy, opponentName)
     local p = Config.profile
+    Config.ensureProfileFields(p)
     p.gamesPlayed = p.gamesPlayed + 1
 
     -- Determine whether the human/primary player won
@@ -585,16 +934,31 @@ function Config.recordMatchResult(mode, winnerPlayer, isDraw, lineTypeKey, total
 
     local deltaRating = 0
     local resKey = "res_draw"
+    local eloKey = Config.getEloKey(Config.ruleMode, Config.onlineTimeMinutes)
 
     if isDraw then
         p.draws = p.draws + 1
+        p.winStreak = 0
         resKey = "res_draw"
     elseif playerWon then
         p.wins = p.wins + 1
-        p.achievements.first_win = true
-        if lineTypeKey == "line_diag_3d" then
-            p.achievements.diag_3d = true
+        p.winStreak = (p.winStreak or 0) + 1
+
+        -- Achievements & Skin wins are ONLY recorded for registered accounts (Guest achievements do NOT count!)
+        if p.isRegistered then
+            local sk = Config.activePieceSkin or "classic_bw"
+            p.skinWins[sk] = (p.skinWins[sk] or 0) + 1
+
+            if mode == Config.GameMode.VS_BOT then
+                if Config.botDifficulty == 1 then p.achievements.bot_easy = true end
+                if Config.botDifficulty == 2 then p.achievements.bot_medium = true end
+                if Config.botDifficulty == 3 then p.achievements.bot_hard = true end
+            end
+            if p.wins >= 10   then p.achievements.wins_10 = true end
+            if p.wins >= 100  then p.achievements.wins_100 = true end
+            if p.wins >= 1000 then p.achievements.wins_1000 = true end
         end
+
         -- ELO changes ONLY in Online mode AND ONLY when user is registered!
         if mode == Config.GameMode.ONLINE and p.isRegistered then
             deltaRating = 10
@@ -602,22 +966,25 @@ function Config.recordMatchResult(mode, winnerPlayer, isDraw, lineTypeKey, total
         resKey = "res_victory"
     else
         p.losses = p.losses + 1
+        p.winStreak = 0
         if mode == Config.GameMode.ONLINE and p.isRegistered then
             deltaRating = -10
         end
         resKey = "res_defeat"
     end
 
-    if p.gamesPlayed >= 10 then
-        p.achievements.veteran = true
-    end
-
     if not p.isRegistered then
         p.rating = 800
         p.ratingHistory = { 800 }
+        p.ratings = { std_bullet = 800, std_blitz = 800, free_bullet = 800, free_blitz = 800 }
+        p.ratingHistories = { std_bullet = { 800 }, std_blitz = { 800 }, free_bullet = { 800 }, free_blitz = { 800 } }
     elseif deltaRating ~= 0 then
-        p.rating = math.max(100, p.rating + deltaRating)
-        table.insert(p.ratingHistory, p.rating)
+        local curR = p.ratings[eloKey] or 800
+        local newR = math.max(100, curR + deltaRating)
+        p.ratings[eloKey] = newR
+        table.insert(p.ratingHistories[eloKey], newR)
+        p.rating = p.ratings.std_blitz or newR
+        p.ratingHistory = p.ratingHistories.std_blitz
     end
 
     local fullMoves = math.max(1, math.ceil(totalHalfMoves / 2))
@@ -625,15 +992,31 @@ function Config.recordMatchResult(mode, winnerPlayer, isDraw, lineTypeKey, total
     -- Duration is recorded ONLY for non-bot matches (Offline PvP, LAN, Online)
     local recordedDuration = (mode ~= Config.GameMode.VS_BOT) and math.max(1, math.floor(durationSec or 0)) or nil
 
+    -- Store compact copy of moveHistory so any game can be replayed from Match History
+    local savedMoves = nil
+    if type(moveHistoryCopy) == "table" and #moveHistoryCopy > 0 then
+        savedMoves = {}
+        for _, mv in ipairs(moveHistoryCopy) do
+            table.insert(savedMoves, {
+                x = mv.x, y = mv.y, z = mv.z, player = mv.player, notation = mv.notation
+            })
+        end
+    end
+
     local matchEntry = {
-        username    = p.username,
-        mode        = mode,
-        botDiff     = Config.botDifficulty,
-        resKey      = resKey,
-        moves       = fullMoves,
-        delta       = deltaRating,
-        dateStr     = dateStr,
-        durationSec = recordedDuration
+        username     = p.username,
+        opponent     = opponentName,
+        mode         = mode,
+        ruleMode     = Config.ruleMode,
+        botDiff      = Config.botDifficulty,
+        resKey       = resKey,
+        won          = playerWon,
+        draw         = isDraw and true or false,
+        moves        = fullMoves,
+        delta        = deltaRating,
+        dateStr      = dateStr,
+        durationSec  = recordedDuration,
+        movesList    = savedMoves
     }
     -- Keep ALL matches in history so user can scroll all the way back to the 1st game!
     table.insert(p.recentMatches, 1, matchEntry)
@@ -644,6 +1027,141 @@ function Config.recordMatchResult(mode, winnerPlayer, isDraw, lineTypeKey, total
     end
 
     return deltaRating
+end
+
+function Config.recordTournamentWin(tournamentData)
+    local p = Config.profile
+    if not p.isRegistered or not tournamentData or tournamentData.isBotTournament then
+        return
+    end
+    Config.ensureProfileFields(p)
+    p.achievements.tournament_win = true
+    table.insert(p.tournamentHistory, 1, {
+        code       = tournamentData.code,
+        system     = tournamentData.system,
+        ruleMode   = tournamentData.ruleMode,
+        timeMin    = tournamentData.timeMinutes,
+        players    = #tournamentData.players,
+        dateStr    = os.date("%d.%m.%Y %H:%M"),
+        battles    = tournamentData.humanMatches or {}
+    })
+end
+
+-- Friends / Requests / Block System (Works across local registered accounts + Firebase lookup)
+local function listContains(tbl, val)
+    for idx, v in ipairs(tbl) do
+        if v:lower() == val:lower() then return idx end
+    end
+    return nil
+end
+
+function Config.findUserByUsername(username)
+    if type(username) ~= "string" or username == "" then return nil end
+    local lowerU = username:lower()
+    for _, acc in pairs(Config.registeredAccounts) do
+        if acc.username and acc.username:lower() == lowerU then
+            Config.ensureProfileFields(acc)
+            return acc
+        end
+    end
+    local remote = FirebaseClient.fetchUserProfile(username)
+    if remote then
+        Config.ensureProfileFields(remote)
+        return remote
+    end
+    return nil
+end
+
+function Config.sendFriendRequest(targetName)
+    local p = Config.profile
+    if not p.isRegistered then return false, "err_need_register" end
+    Config.ensureProfileFields(p)
+    if not targetName or targetName == "" or targetName:lower() == p.username:lower() then
+        return false, "friend_not_found"
+    end
+    if listContains(p.blockedUsers, targetName) then
+        return false, "friend_blocked"
+    end
+    if listContains(p.friends, targetName) then
+        return false, "friend_already"
+    end
+    if listContains(p.sentRequests, targetName) then
+        return false, "friend_req_sent"
+    end
+    local target = Config.findUserByUsername(targetName)
+    if not target then
+        return false, "friend_not_found"
+    end
+    if listContains(target.blockedUsers or {}, p.username) then
+        return false, "friend_blocked"
+    end
+    table.insert(p.sentRequests, 1, target.username)
+    if Config.registeredAccounts[target.username] then
+        Config.ensureProfileFields(Config.registeredAccounts[target.username])
+        if not listContains(Config.registeredAccounts[target.username].incomingRequests, p.username) then
+            table.insert(Config.registeredAccounts[target.username].incomingRequests, 1, p.username)
+        end
+    end
+    return true, "friend_req_sent"
+end
+
+function Config.acceptFriendRequest(fromName)
+    local p = Config.profile
+    Config.ensureProfileFields(p)
+    local idx = listContains(p.incomingRequests, fromName)
+    if idx then table.remove(p.incomingRequests, idx) end
+    if not listContains(p.friends, fromName) then
+        table.insert(p.friends, 1, fromName)
+    end
+    if p.isRegistered then
+        p.achievements.first_friend = true
+    end
+    local other = Config.registeredAccounts[fromName]
+    if other then
+        Config.ensureProfileFields(other)
+        local sIdx = listContains(other.sentRequests, p.username)
+        if sIdx then table.remove(other.sentRequests, sIdx) end
+        if not listContains(other.friends, p.username) then
+            table.insert(other.friends, 1, p.username)
+        end
+        other.achievements.first_friend = true
+    end
+end
+
+function Config.declineFriendRequest(fromName)
+    local p = Config.profile
+    Config.ensureProfileFields(p)
+    local idx = listContains(p.incomingRequests, fromName)
+    if idx then table.remove(p.incomingRequests, idx) end
+    local other = Config.registeredAccounts[fromName]
+    if other then
+        Config.ensureProfileFields(other)
+        local sIdx = listContains(other.sentRequests, p.username)
+        if sIdx then table.remove(other.sentRequests, sIdx) end
+    end
+end
+
+function Config.removeFriend(targetName)
+    local p = Config.profile
+    Config.ensureProfileFields(p)
+    local idx = listContains(p.friends, targetName)
+    if idx then table.remove(p.friends, idx) end
+    local other = Config.registeredAccounts[targetName]
+    if other then
+        Config.ensureProfileFields(other)
+        local oIdx = listContains(other.friends, p.username)
+        if oIdx then table.remove(other.friends, oIdx) end
+    end
+end
+
+function Config.blockUser(targetName)
+    local p = Config.profile
+    Config.ensureProfileFields(p)
+    Config.removeFriend(targetName)
+    Config.declineFriendRequest(targetName)
+    if not listContains(p.blockedUsers, targetName) then
+        table.insert(p.blockedUsers, 1, targetName)
+    end
 end
 
 function Config.formatMatchMeta(m)

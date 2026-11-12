@@ -29,27 +29,33 @@ end
 
 function Storage.save()
     local unlockedPieces = {}
-    for id, s in pairs(Config.pieceSkins) do
-        unlockedPieces[id] = s.unlocked and true or false
-    end
     local unlockedBoards = {}
-    for id, s in pairs(Config.boardSkins) do
-        unlockedBoards[id] = s.unlocked and true or false
-    end
     local unlockedThemes = {}
-    for id, s in pairs(Config.uiThemes) do
-        unlockedThemes[id] = s.unlocked and true or false
-    end
+    local savedCoins = Config.coins
 
-    if not Config.profile.isRegistered then
+    -- Guest purchases, unlocks & achievements do NOT persist across sessions
+    if Config.profile.isRegistered then
+        for id, s in pairs(Config.pieceSkins) do
+            unlockedPieces[id] = s.unlocked and true or false
+        end
+        for id, s in pairs(Config.boardSkins) do
+            unlockedBoards[id] = s.unlocked and true or false
+        end
+        for id, s in pairs(Config.uiThemes) do
+            unlockedThemes[id] = s.unlocked and true or false
+        end
+    else
+        savedCoins = 100
         Config.profile.rating = 800
         Config.profile.ratingHistory = { 800 }
+        Config.profile.ratings = { std_bullet = 800, std_blitz = 800, free_bullet = 800, free_blitz = 800 }
+        Config.profile.ratingHistories = { std_bullet = { 800 }, std_blitz = { 800 }, free_bullet = { 800 }, free_blitz = { 800 } }
     end
 
     local data = {
         lang               = I18N.current,
-        coins              = Config.coins,
-        adsRemoved         = Config.adsRemoved,
+        coins              = savedCoins,
+        adsRemoved         = Config.profile.isRegistered and Config.adsRemoved or false,
         boardShape         = Config.boardShape,
         activePieceSkin    = Config.activePieceSkin,
         activeBoardSkin    = Config.activeBoardSkin,
@@ -57,11 +63,12 @@ function Storage.save()
         botDifficulty      = Config.botDifficulty,
         botColorChoice     = Config.botColorChoice,
         onlineTimeMinutes  = Config.onlineTimeMinutes,
+        ruleMode           = Config.ruleMode,
         unlockedPieces     = unlockedPieces,
         unlockedBoards     = unlockedBoards,
         unlockedThemes     = unlockedThemes,
         registeredAccounts = Config.registeredAccounts,
-        profile            = Config.profile
+        profile            = Config.profile.isRegistered and Config.profile or nil
     }
 
     local content = "return " .. serializeValue(data)
@@ -107,6 +114,9 @@ function Storage.load()
     if data.onlineTimeMinutes == 1 or data.onlineTimeMinutes == 5 then
         Config.onlineTimeMinutes = data.onlineTimeMinutes
     end
+    if data.ruleMode == "standard" or data.ruleMode == "free" then
+        Config.ruleMode = data.ruleMode
+    end
     if type(data.unlockedPieces) == "table" then
         for id, unlocked in pairs(data.unlockedPieces) do
             if Config.pieceSkins[id] and unlocked then
@@ -121,10 +131,13 @@ function Storage.load()
             end
         end
     end
-    -- Always keep default free/unlocked boards unlocked even if an older save existed
-    if Config.boardSkins.sweet_cake then Config.boardSkins.sweet_cake.unlocked = true end
-    if Config.boardSkins.gold_ach   then Config.boardSkins.gold_ach.unlocked   = true end
-    if Config.boardSkins.metal_steel then Config.boardSkins.metal_steel.unlocked = true end
+    -- Always keep default free/unlocked items unlocked even if an older save existed
+    for _, b in pairs(Config.boardSkins) do
+        if b.unlockType == "free" then b.unlocked = true end
+    end
+    for _, p in pairs(Config.pieceSkins) do
+        if p.unlockType == "free" then p.unlocked = true end
+    end
     if type(data.unlockedThemes) == "table" then
         for id, unlocked in pairs(data.unlockedThemes) do
             if Config.uiThemes[id] and unlocked then
@@ -132,18 +145,22 @@ function Storage.load()
             end
         end
     end
+    for _, th in pairs(Config.uiThemes) do
+        if th.unlockType == "free" then th.unlocked = true end
+    end
     if type(data.registeredAccounts) == "table" then
         Config.registeredAccounts = data.registeredAccounts
+        for _, acc in pairs(Config.registeredAccounts) do
+            Config.ensureProfileFields(acc)
+        end
     end
-    if type(data.profile) == "table" then
+    if type(data.profile) == "table" and data.profile.isRegistered then
         for k, v in pairs(data.profile) do
             Config.profile[k] = v
         end
-        -- Ensure unregistered guest always has 800 ELO
-        if not Config.profile.isRegistered then
-            Config.profile.rating = 800
-            Config.profile.ratingHistory = { 800 }
-        end
+        Config.ensureProfileFields(Config.profile)
+    else
+        Config.logoutAccount()
     end
 end
 

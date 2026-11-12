@@ -6,6 +6,8 @@ local BotAI      = require("src.bot_ai")
 local Sound      = require("src.sound")
 local Storage    = require("src.storage")
 local LAN        = require("src.lan")
+local Firebase   = require("src.firebase_client")
+local Tournament = require("src.tournament")
 local utf8       = require("utf8")
 
 local fonts = {}
@@ -87,7 +89,36 @@ local function setUIScissor(x, y, w, h)
 end
 
 -- Gameplay state
-local hoveredX, hoveredZ = nil, nil
+local hoveredX, hoveredZ, hoveredY = nil, nil, nil
+local isReplayMode = false
+local replaySourceMatch = nil
+local matchmakingState = { active = false, timer = 0, statsTimer = 0 }
+local activeTournamentMatch = nil
+local tournamentUI = {
+    view = "hub", -- "hub" | "create" | "join" | "room"
+    system = "swiss",
+    maxPlayers = 4,
+    timeMinutes = 5,
+    ruleMode = "standard",
+    isBotTournament = false,
+    botDifficulty = "medium",
+    joinCode = "",
+    errorMsg = nil
+}
+local selectedAchievementId = nil
+local friendSearchText = ""
+local rulesScrollOffset = 0
+local snowflakes = {}
+for i = 1, 70 do
+    snowflakes[i] = {
+        x = math.random(),
+        y = math.random(),
+        r = 1.5 + math.random() * 2.5,
+        vy = 0.035 + math.random() * 0.06,
+        vx = (math.random() - 0.5) * 0.02,
+        phase = math.random() * 6.28
+    }
+end
 local activeDrop = nil
 local botTimer = nil
 local uiButtons = {}
@@ -275,8 +306,10 @@ local function startNewGame(mode, difficulty, lanRole)
         Config.humanPlayer = BoardLogic.Player.WHITE
     end
 
-    gameLogic:reset()
-    hoveredX, hoveredZ = nil, nil
+    gameLogic:reset(Config.ruleMode)
+    hoveredX, hoveredZ, hoveredY = nil, nil, nil
+    isReplayMode = false
+    replaySourceMatch = nil
     activeDrop = nil
     botTimer = nil
     lastRatingDelta = 0
@@ -305,6 +338,7 @@ local function startNewGame(mode, difficulty, lanRole)
 end
 
 local function finalizeGameEnd()
+    if isReplayMode then return end
     Sound.play("win")
     local elapsedSec = math.max(1, math.floor(love.timer.getTime() - matchStartTime))
     lastRatingDelta = Config.recordMatchResult(
@@ -313,8 +347,17 @@ local function finalizeGameEnd()
         gameLogic.isDraw,
         gameLogic.winningLineType,
         #gameLogic.moveHistory,
-        elapsedSec
+        elapsedSec,
+        gameLogic.moveHistory
     )
+    if activeTournamentMatch and Tournament.active then
+        local humanWon = (gameLogic.winner == Config.humanPlayer)
+        local tRes = Tournament.recordHumanMatchResult(Config.profile.username, humanWon, gameLogic.isDraw, #gameLogic.moveHistory)
+        if tRes and tRes.finished and tRes.champion == Config.profile.username and not Tournament.active.isBotTournament then
+            Config.recordTournamentWin(Tournament.active.name or "Tournament", Tournament.active.opponents or {}, Tournament.active.system)
+        end
+        activeTournamentMatch = nil
+    end
     Storage.save()
 end
 
@@ -333,12 +376,20 @@ local function syncMoveLogScrollToPly()
     end
 end
 
-local function triggerMove(gx, gz, fromNetwork)
-    -- If user was inspecting an earlier move, snap back to live before dropping a new piece
+local function triggerMove(gx, gz, fromNetwork, gy)
+    if isReplayMode then return end
+    -- If user was inspecting an earlier move, snap back to live before placing a new piece
     viewPly = #gameLogic.moveHistory
-    if not gameLogic:canDrop(gx, gz) then return end
-    local res = gameLogic:dropPiece(gx, gz)
-    if not res.ok then return end
+    local res
+    if gameLogic.ruleMode == "free" then
+        local targetY = gy or gameLogic:getNextEmptyY(gx, gz)
+        if not targetY or not gameLogic:canPlace(gx, targetY, gz) then return end
+        res = gameLogic:placePiece(gx, targetY, gz)
+    else
+        if not gameLogic:canDrop(gx, gz) then return end
+        res = gameLogic:dropPiece(gx, gz)
+    end
+    if not res or not res.ok then return end
 
     viewPly = #gameLogic.moveHistory
     syncMoveLogScrollToPly()
@@ -347,7 +398,7 @@ local function triggerMove(gx, gz, fromNetwork)
         LAN.sendMove(gx, gz)
     end
 
-    hoveredX, hoveredZ = nil, nil
+    hoveredX, hoveredZ, hoveredY = nil, nil, nil
     turnBannerPulse = 1.0
     local _, targetY, _ = renderer:gridToWorldXYZ(res.pos.x, res.pos.y, res.pos.z)
 
@@ -377,7 +428,7 @@ local function performBotMove()
     if not isBotTurn() then return end
     local pick = BotAI.chooseMove(gameLogic, Config.botDifficulty)
     if pick then
-        triggerMove(pick.x, pick.z)
+        triggerMove(pick.x, pick.z, false, pick.y)
     end
 end
 
@@ -444,6 +495,29 @@ function love.update(dt)
     shopScrollX = shopScrollX + (shopTargetScrollX - shopScrollX) * math.min(1.0, dt * 12.0)
 
     LAN.update()
+
+    if Config.selectedUITheme == "new_year" then
+        for _, sf in ipairs(snowflakes) do
+            sf.y = sf.y + sf.vy * dt
+            sf.x = sf.x + (sf.vx + math.sin(love.timer.getTime() * 1.3 + sf.phase) * 0.015) * dt
+            if sf.y > 1.02 then sf.y = -0.02; sf.x = math.random() end
+            if sf.x < -0.02 then sf.x = 1.02 elseif sf.x > 1.02 then sf.x = -0.02 end
+        end
+    end
+
+    matchmakingState.statsTimer = (matchmakingState.statsTimer or 0) - dt
+    if matchmakingState.statsTimer <= 0 then
+        matchmakingState.statsTimer = 12.0
+        local inMatch = (currentScreen == "game" and Config.currentMode == Config.GameMode.ONLINE)
+        Firebase.sendPresenceHeartbeat(Config.profile.username, inMatch)
+        local pCnt, gCnt = Firebase.fetchOnlineStats()
+        if pCnt then Config.onlinePlayersCount = pCnt end
+        if gCnt then Config.onlineActiveGames = gCnt end
+    end
+
+    if matchmakingState.active then
+        matchmakingState.timer = matchmakingState.timer + dt
+    end
 
     if turnBannerPulse > 0 then
         turnBannerPulse = math.max(0.0, turnBannerPulse - dt * 2.5)
@@ -524,14 +598,14 @@ function love.update(dt)
     -- Raycast hover on pegs (on desktop mouse mode; on touch devices 1st tap sets hoveredX/Z)
     if not isTouchDevice then
         local mx, my = love.mouse.getPosition()
-        if not gameLogic.isGameOver and not activeDrop and isLocalPlayerTurn() and not mouseState.dragged then
-            local nx, nz = renderer:pickPegAtScreenPos(mx, my, sw, sh, gameLogic)
-            if (nx ~= hoveredX or nz ~= hoveredZ) and nx ~= nil then
+        if not isReplayMode and not gameLogic.isGameOver and not activeDrop and isLocalPlayerTurn() and not mouseState.dragged then
+            local nx, nz, ny = renderer:pickPegAtScreenPos(mx, my, sw, sh, gameLogic)
+            if (nx ~= hoveredX or nz ~= hoveredZ or ny ~= hoveredY) and nx ~= nil then
                 Sound.play("hover")
             end
-            hoveredX, hoveredZ = nx, nz
+            hoveredX, hoveredZ, hoveredY = nx, nz, ny
         else
-            hoveredX, hoveredZ = nil, nil
+            hoveredX, hoveredZ, hoveredY = nil, nil, nil
         end
     end
 end
@@ -699,7 +773,7 @@ end
 -- Bot Modal: 3-Step Difficulty Slider + Piece Color Selection (White / Black / Random)
 local function drawBotModal(sw, sh)
     local ui = Config.getUITheme()
-    local pw, ph = 520, 390
+    local pw, ph = 520, 446
     local px, py = (sw - pw) * 0.5, (sh - ph) * 0.5
     drawPanel(px, py, pw, ph)
 
@@ -768,14 +842,38 @@ local function drawBotModal(sw, sh)
         })
     end
 
+    -- Rule Mode: Standard (Gravity) vs Free (Any Height)
+    love.graphics.setFont(fonts.small)
+    love.graphics.setColor(ui.textSub)
+    love.graphics.printf(I18N.t("rule_mode_label"), px, py + 272, pw, "center")
+    local rmW = (pw - 78) * 0.5
+    drawButton("bot_rule_std", px + 34, py + 292, rmW, 38, I18N.t("rule_standard"), {
+        active = (Config.ruleMode == "standard"),
+        font = fonts.small,
+        onClick = function()
+            Sound.play("click")
+            Config.ruleMode = "standard"
+            Storage.save()
+        end
+    })
+    drawButton("bot_rule_free", px + 44 + rmW, py + 292, rmW, 38, I18N.t("rule_free"), {
+        active = (Config.ruleMode == "free"),
+        font = fonts.small,
+        onClick = function()
+            Sound.play("click")
+            Config.ruleMode = "free"
+            Storage.save()
+        end
+    })
+
     -- Bottom-left Back & Bottom-right Play
-    drawButton("bot_back", px + 34, py + ph - 66, 155, 44, I18N.t("back_btn"), {
+    drawButton("bot_back", px + 34, py + ph - 62, 155, 44, I18N.t("back_btn"), {
         onClick = function()
             Sound.play("click")
             currentScreen = "menu"
         end
     })
-    drawButton("bot_play", px + pw - 189, py + ph - 66, 155, 44, I18N.t("play_btn"), {
+    drawButton("bot_play", px + pw - 189, py + ph - 62, 155, 44, I18N.t("play_btn"), {
         primary = true,
         onClick = function()
             Sound.play("click")
@@ -786,15 +884,15 @@ end
 
 local function drawOnlineModal(sw, sh)
     local ui = Config.getUITheme()
-    local pw, ph = 550, 456
+    local pw, ph = 560, 520
     local px, py = (sw - pw) * 0.5, (sh - ph) * 0.5
     drawPanel(px, py, pw, ph)
 
     love.graphics.setFont(fonts.h2)
     love.graphics.setColor(ui.textMain)
-    love.graphics.printf(I18N.t("online_title"), px, py + 18, pw, "center")
+    love.graphics.printf(I18N.t("online_title"), px, py + 16, pw, "center")
 
-    -- Subtle mini online players counter in the top-right corner of the modal (Icon + Number)
+    -- Реальный счётчик игроков онлайн в правом верхнем углу окна
     local badgeW, badgeH = 78, 28
     local badgeX, badgeY = px + pw - badgeW - 18, py + 16
     love.graphics.setColor(ui.bgClear)
@@ -803,76 +901,114 @@ local function drawOnlineModal(sw, sh)
     love.graphics.setLineWidth(1.2)
     love.graphics.rectangle("line", badgeX, badgeY, badgeW, badgeH, 14, 14)
 
-    -- Pulsing green online dot
     local pulse = 0.75 + 0.25 * math.sin(love.timer.getTime() * 3.2)
     love.graphics.setColor(0.24, 0.86, 0.48, pulse)
     love.graphics.circle("fill", badgeX + 13, badgeY + 14, 3.8)
-
-    -- Mini vector person icon (head + shoulders)
     love.graphics.setColor(ui.textSub)
     love.graphics.circle("fill", badgeX + 27, badgeY + 10.5, 3.2)
     love.graphics.arc("fill", badgeX + 27, badgeY + 20.5, 5.8, math.pi * 1.12, math.pi * 1.88)
 
-    -- Active online count number
-    local onlineCount = Config.onlinePlayersCount + math.floor(math.sin(love.timer.getTime() * 0.18) * 2.5)
     love.graphics.setFont(fonts.small)
     love.graphics.setColor(ui.textMain)
-    love.graphics.printf(tostring(math.max(1, onlineCount)), badgeX + 35, badgeY + 7, badgeW - 40, "center")
+    love.graphics.printf(tostring(math.max(1, Config.onlinePlayersCount or 1)), badgeX + 35, badgeY + 7, badgeW - 40, "center")
+
+    if matchmakingState.active then
+        -- Экран поиска соперника: крутящееся колесико, ориентировочное время, активные партии и игроки
+        local cx, cy = px + pw * 0.5, py + 175
+        local spin = love.timer.getTime() * 4.5
+        love.graphics.setColor(ui.panelBorder)
+        love.graphics.setLineWidth(5)
+        love.graphics.circle("line", cx, cy, 34)
+        love.graphics.setColor(0.32, 0.76, 0.98, 1.0)
+        love.graphics.arc("line", "open", cx, cy, 34, spin, spin + math.pi * 0.85)
+
+        love.graphics.setFont(fonts.h2)
+        love.graphics.setColor(ui.textMain)
+        love.graphics.printf("Поиск соперника...", px, cy + 52, pw, "center")
+
+        love.graphics.setFont(fonts.body)
+        love.graphics.setColor(ui.textSub)
+        love.graphics.printf(string.format("(Ориентировочное время: ~15 сек)  •  %ds", math.floor(matchmakingState.timer)), px, cy + 88, pw, "center")
+        love.graphics.printf(string.format("Активных партий: %d", Config.onlineActiveGames or 0), px, cy + 122, pw, "center")
+        love.graphics.printf(string.format("Активных игроков: %d", math.max(1, Config.onlinePlayersCount or 1)), px, cy + 146, pw, "center")
+
+        drawButton("online_cancel_search", px + pw * 0.5 - 100, py + ph - 66, 200, 44, I18N.t("back_btn"), {
+            onClick = function()
+                Sound.play("click")
+                matchmakingState.active = false
+                matchmakingState.timer = 0
+            end
+        })
+        return
+    end
 
     love.graphics.setFont(fonts.body)
     love.graphics.setColor(ui.textSub)
-    love.graphics.printf(I18N.t("online_desc"), px + 32, py + 54, pw - 64, "center")
+    love.graphics.printf(I18N.t("online_desc"), px + 30, py + 50, pw - 60, "center")
 
-    local bx, bw = px + 46, pw - 92
+    local bx, bw = px + 44, pw - 88
     local halfW = (bw - 12) * 0.5
 
-    -- Time Control selection: 5 minutes (5:00) vs 1 minute (1:00)
+    -- Time Control: 5m vs 1m
     love.graphics.setFont(fonts.small)
     love.graphics.setColor(ui.textSub)
-    love.graphics.printf(I18N.t("time_control_label"), bx, py + 104, bw, "center")
+    love.graphics.printf(I18N.t("time_control_label"), bx, py + 96, bw, "center")
 
-    drawButton("online_time_5m", bx, py + 124, halfW, 40, I18N.t("time_5m"), {
+    drawButton("online_time_5m", bx, py + 116, halfW, 38, I18N.t("time_5m"), {
         active = (Config.onlineTimeMinutes == 5),
         font = fonts.small,
-        onClick = function()
-            Sound.play("click")
-            Config.onlineTimeMinutes = 5
-            Storage.save()
-        end
+        onClick = function() Sound.play("click"); Config.onlineTimeMinutes = 5; Storage.save() end
     })
-    drawButton("online_time_1m", bx + halfW + 12, py + 124, halfW, 40, I18N.t("time_1m"), {
+    drawButton("online_time_1m", bx + halfW + 12, py + 116, halfW, 38, I18N.t("time_1m"), {
         active = (Config.onlineTimeMinutes == 1),
+        font = fonts.small,
+        onClick = function() Sound.play("click"); Config.onlineTimeMinutes = 1; Storage.save() end
+    })
+
+    -- Rule Mode: Standard vs Free
+    love.graphics.setFont(fonts.small)
+    love.graphics.setColor(ui.textSub)
+    love.graphics.printf(I18N.t("rule_mode_label"), bx, py + 162, bw, "center")
+    drawButton("online_rule_std", bx, py + 182, halfW, 36, I18N.t("rule_standard"), {
+        active = (Config.ruleMode == "standard"),
+        font = fonts.small,
+        onClick = function() Sound.play("click"); Config.ruleMode = "standard"; Storage.save() end
+    })
+    drawButton("online_rule_free", bx + halfW + 12, py + 182, halfW, 36, I18N.t("rule_free"), {
+        active = (Config.ruleMode == "free"),
+        font = fonts.small,
+        onClick = function() Sound.play("click"); Config.ruleMode = "free"; Storage.save() end
+    })
+
+    drawButton("online_reg", bx, py + 232, halfW, 42, I18N.t("register_btn"), {
+        accent = true,
+        onClick = function() Sound.play("click"); openAuthModal("register") end
+    })
+    drawButton("online_signin", bx + halfW + 12, py + 232, halfW, 42, I18N.t("signin_btn"), {
+        onClick = function() Sound.play("click"); openAuthModal("login") end
+    })
+
+    drawButton("online_guest", bx, py + 284, halfW, 44, I18N.t("play_guest_btn"), {
+        primary = true,
         font = fonts.small,
         onClick = function()
             Sound.play("click")
-            Config.onlineTimeMinutes = 1
-            Storage.save()
+            matchmakingState.active = true
+            matchmakingState.timer = 0
         end
     })
-
-    drawButton("online_reg", bx, py + 178, halfW, 44, I18N.t("register_btn"), {
+    drawButton("online_tournament", bx + halfW + 12, py + 284, halfW, 44, I18N.t("tournament_btn"), {
         accent = true,
+        font = fonts.small,
         onClick = function()
             Sound.play("click")
-            openAuthModal("register")
-        end
-    })
-    drawButton("online_signin", bx + halfW + 12, py + 178, halfW, 44, I18N.t("signin_btn"), {
-        onClick = function()
-            Sound.play("click")
-            openAuthModal("login")
+            tournamentUI.view = Tournament.active and "room" or "hub"
+            tournamentUI.errorMsg = nil
+            currentScreen = "tournament_modal"
         end
     })
 
-    drawButton("online_guest", bx, py + 234, bw, 46, I18N.t("play_guest_btn"), {
-        primary = true,
-        onClick = function()
-            Sound.play("click")
-            startNewGame(Config.GameMode.ONLINE)
-        end
-    })
-
-    drawButton("online_lan", bx, py + 292, bw, 46, I18N.t("lan_btn"), {
+    drawButton("online_lan", bx, py + 338, bw, 42, I18N.t("lan_btn"), {
         active = true,
         onClick = function()
             Sound.play("click")
@@ -884,12 +1020,207 @@ local function drawOnlineModal(sw, sh)
 
     love.graphics.setFont(fonts.small)
     love.graphics.setColor(ui.textSub)
-    love.graphics.printf(I18N.t("online_stub_note"), px + 28, py + 350, pw - 56, "center")
+    love.graphics.printf(I18N.t("online_stub_note"), px + 28, py + 392, pw - 56, "center")
 
     drawButton("online_back", px + pw * 0.5 - 80, py + ph - 52, 160, 40, I18N.t("back_btn"), {
         onClick = function()
             Sound.play("click")
             currentScreen = "menu"
+        end
+    })
+end
+
+local function drawTournamentModal(sw, sh)
+    local ui = Config.getUITheme()
+    local pw, ph = 680, 520
+    local px, py = (sw - pw) * 0.5, (sh - ph) * 0.5
+    drawPanel(px, py, pw, ph)
+
+    love.graphics.setFont(fonts.h2)
+    love.graphics.setColor(ui.textMain)
+    love.graphics.printf(I18N.t("tournament_title"), px, py + 16, pw, "center")
+
+    local bx, bw = px + 36, pw - 72
+    local halfW = (bw - 12) * 0.5
+
+    if tournamentUI.view == "hub" then
+        drawButton("tourn_go_create", bx, py + 120, bw, 56, I18N.t("tourn_create"), {
+            primary = true,
+            onClick = function() Sound.play("click"); tournamentUI.view = "create" end
+        })
+        drawButton("tourn_go_join", bx, py + 196, bw, 56, I18N.t("tourn_join"), {
+            accent = true,
+            onClick = function() Sound.play("click"); tournamentUI.view = "join"; tournamentUI.errorMsg = nil end
+        })
+    elseif tournamentUI.view == "create" then
+        love.graphics.setFont(fonts.small)
+        love.graphics.setColor(ui.textSub)
+        love.graphics.print(I18N.t("tourn_system"), bx, py + 68)
+        drawButton("tc_swiss", bx, py + 88, halfW, 36, I18N.t("tourn_swiss"), {
+            active = (tournamentUI.system == "swiss"), font = fonts.small,
+            onClick = function() Sound.play("click"); tournamentUI.system = "swiss" end
+        })
+        drawButton("tc_bracket", bx + halfW + 12, py + 88, halfW, 36, I18N.t("tourn_bracket"), {
+            active = (tournamentUI.system == "bracket"), font = fonts.small,
+            onClick = function() Sound.play("click"); tournamentUI.system = "bracket" end
+        })
+
+        love.graphics.setColor(ui.textSub)
+        love.graphics.print(I18N.t("tourn_players"), bx, py + 134)
+        drawButton("tc_p4", bx, py + 154, halfW, 36, "4", {
+            active = (tournamentUI.maxPlayers == 4),
+            onClick = function() Sound.play("click"); tournamentUI.maxPlayers = 4 end
+        })
+        drawButton("tc_p8", bx + halfW + 12, py + 154, halfW, 36, "8", {
+            active = (tournamentUI.maxPlayers == 8),
+            onClick = function() Sound.play("click"); tournamentUI.maxPlayers = 8 end
+        })
+
+        love.graphics.setColor(ui.textSub)
+        love.graphics.print(I18N.t("time_control_label"), bx, py + 200)
+        drawButton("tc_t5", bx, py + 220, halfW, 36, I18N.t("time_5m"), {
+            active = (tournamentUI.timeMinutes == 5), font = fonts.small,
+            onClick = function() Sound.play("click"); tournamentUI.timeMinutes = 5 end
+        })
+        drawButton("tc_t1", bx + halfW + 12, py + 220, halfW, 36, I18N.t("time_1m"), {
+            active = (tournamentUI.timeMinutes == 1), font = fonts.small,
+            onClick = function() Sound.play("click"); tournamentUI.timeMinutes = 1 end
+        })
+
+        drawButton("tc_bot_toggle", bx, py + 270, bw, 38, I18N.t("tourn_bot_mode") .. (tournamentUI.isBotTournament and " [ON]" or " [OFF]"), {
+            active = tournamentUI.isBotTournament, font = fonts.small,
+            onClick = function() Sound.play("click"); tournamentUI.isBotTournament = not tournamentUI.isBotTournament end
+        })
+        if tournamentUI.isBotTournament then
+            local thirdW = (bw - 16) / 3
+            for idx, d in ipairs({ { "easy", I18N.t("diff_easy") }, { "medium", I18N.t("diff_medium") }, { "hard", I18N.t("diff_hard") } }) do
+                drawButton("tc_bdiff_" .. d[1], bx + (idx - 1) * (thirdW + 8), py + 318, thirdW, 34, d[2], {
+                    active = (tournamentUI.botDifficulty == d[1]), font = fonts.small,
+                    onClick = function() Sound.play("click"); tournamentUI.botDifficulty = d[1] end
+                })
+            end
+        end
+
+        drawButton("tc_submit", bx, py + ph - 112, bw, 44, I18N.t("tourn_create"), {
+            primary = true,
+            onClick = function()
+                Sound.play("click")
+                Tournament.create({
+                    system = tournamentUI.system,
+                    maxPlayers = tournamentUI.maxPlayers,
+                    timeMinutes = tournamentUI.timeMinutes,
+                    ruleMode = Config.ruleMode,
+                    isBotTournament = tournamentUI.isBotTournament,
+                    botDifficulty = tournamentUI.botDifficulty,
+                    hostName = Config.profile.username
+                })
+                tournamentUI.view = "room"
+            end
+        })
+    elseif tournamentUI.view == "join" then
+        love.graphics.setFont(fonts.body)
+        love.graphics.setColor(ui.textSub)
+        love.graphics.print(I18N.t("tourn_code"), bx, py + 110)
+        love.graphics.setColor(ui.bgClear)
+        love.graphics.rectangle("fill", bx, py + 138, bw, 46, 8, 8)
+        love.graphics.setColor(ui.panelBorder)
+        love.graphics.rectangle("line", bx, py + 138, bw, 46, 8, 8)
+        love.graphics.setFont(fonts.h2)
+        love.graphics.setColor(ui.textMain)
+        love.graphics.printf(tournamentUI.joinCode ~= "" and tournamentUI.joinCode or "XXXXXX", bx, py + 148, bw, "center")
+        if tournamentUI.errorMsg then
+            love.graphics.setFont(fonts.small)
+            love.graphics.setColor(0.95, 0.35, 0.35, 1.0)
+            love.graphics.printf(tournamentUI.errorMsg, bx, py + 196, bw, "center")
+        end
+        drawButton("tj_submit", bx, py + 230, bw, 44, I18N.t("tourn_join"), {
+            primary = true,
+            onClick = function()
+                Sound.play("click")
+                local ok, err = Tournament.joinByCode(tournamentUI.joinCode, Config.profile.username)
+                if ok then
+                    tournamentUI.view = "room"
+                    tournamentUI.errorMsg = nil
+                else
+                    tournamentUI.errorMsg = err
+                end
+            end
+        })
+    elseif tournamentUI.view == "room" and Tournament.active then
+        local t = Tournament.active
+        love.graphics.setFont(fonts.body)
+        love.graphics.setColor(ui.textMain)
+        love.graphics.printf(I18N.t("tourn_code") .. " " .. t.code .. "   |   " .. (t.system == "swiss" and I18N.t("tourn_swiss") or I18N.t("tourn_bracket")), px, py + 52, pw, "center")
+
+        if t.status == "lobby" then
+            drawButton("tr_start", bx, py + 92, bw, 42, I18N.t("tourn_start"), {
+                primary = true,
+                onClick = function() Sound.play("click"); Tournament.startTournament() end
+            })
+        end
+
+        if t.system == "swiss" then
+            -- Таблица лидеров Швейцарки
+            love.graphics.setFont(fonts.small)
+            love.graphics.setColor(ui.textSub)
+            love.graphics.print(I18N.t("tourn_leaderboard"), bx, py + 144)
+            local lb = Tournament.getLeaderboard()
+            for idx, row in ipairs(lb) do
+                if idx <= 8 then
+                    local ry = py + 168 + (idx - 1) * 26
+                    love.graphics.setColor(idx == 1 and { 0.96, 0.78, 0.22, 1.0 } or ui.textMain)
+                    love.graphics.print(string.format("#%d  %s", idx, row.name), bx, ry)
+                    love.graphics.printf(string.format("%.1f pts  (%dW/%dD/%dL)", row.score, row.wins, row.draws, row.losses), bx, ry, bw, "right")
+                end
+            end
+        else
+            -- График турнирной сетки (Bracket Tree)
+            local rounds = #t.rounds
+            local colW = (bw - 20) / math.max(1, rounds)
+            for rIdx, rMatches in ipairs(t.rounds) do
+                local rx = bx + (rIdx - 1) * colW
+                local stepY = 230 / math.max(1, #rMatches)
+                for mIdx, m in ipairs(rMatches) do
+                    local my = py + 148 + (mIdx - 0.5) * stepY
+                    love.graphics.setColor(ui.bgClear)
+                    love.graphics.rectangle("fill", rx, my - 18, colW - 14, 38, 6, 6)
+                    love.graphics.setColor(m.done and { 0.30, 0.75, 0.48, 1.0 } or ui.panelBorder)
+                    love.graphics.rectangle("line", rx, my - 18, colW - 14, 38, 6, 6)
+                    love.graphics.setFont(fonts.small)
+                    love.graphics.setColor(ui.textMain)
+                    love.graphics.printf((m.p1 or "?") .. " vs " .. (m.p2 or "?"), rx + 4, my - 10, colW - 22, "center")
+                end
+            end
+        end
+
+        local pending = Tournament.getHumanPendingMatch(Config.profile.username)
+        if pending and t.status == "active" then
+            drawButton("tr_play_match", bx, py + ph - 104, bw, 42, I18N.t("tourn_play_match") .. " (" .. pending.p1 .. " vs " .. pending.p2 .. ")", {
+                primary = true,
+                onClick = function()
+                    Sound.play("click")
+                    activeTournamentMatch = pending
+                    Config.ruleMode = t.ruleMode or "standard"
+                    Config.onlineTimeMinutes = t.timeMinutes or 5
+                    local diffNum = (t.botDifficulty == "easy" and 1) or (t.botDifficulty == "hard" and 3) or 2
+                    startNewGame(t.isBotTournament and Config.GameMode.VS_BOT or Config.GameMode.ONLINE, diffNum)
+                end
+            })
+        elseif t.status == "finished" and t.champion then
+            love.graphics.setFont(fonts.h2)
+            love.graphics.setColor(0.96, 0.78, 0.22, 1.0)
+            love.graphics.printf("Champion: " .. tostring(t.champion), bx, py + ph - 98, bw, "center")
+        end
+    end
+
+    drawButton("tourn_back", px + pw * 0.5 - 80, py + ph - 50, 160, 38, I18N.t("back_btn"), {
+        onClick = function()
+            Sound.play("click")
+            if tournamentUI.view == "create" or tournamentUI.view == "join" then
+                tournamentUI.view = "hub"
+            else
+                currentScreen = "online_modal"
+            end
         end
     })
 end
@@ -969,7 +1300,7 @@ end
 
 local function drawProfileModal(sw, sh)
     local ui = Config.getUITheme()
-    local pw, ph = 820, 560
+    local pw, ph = 880, 620
     local px, py = (sw - pw) * 0.5, (sh - ph) * 0.5
     drawPanel(px, py, pw, ph)
 
@@ -977,29 +1308,32 @@ local function drawProfileModal(sw, sh)
 
     love.graphics.setFont(fonts.h2)
     love.graphics.setColor(ui.textMain)
-    love.graphics.printf(I18N.t("profile_title"), px, py + 18, pw, "center")
+    love.graphics.printf(I18N.t("profile_title"), px, py + 14, pw, "center")
 
     -- Avatar
-    local ax, ay = px + 64, py + 94
-    drawUserAvatar(ax, ay, 34)
+    local ax, ay = px + 58, py + 82
+    drawUserAvatar(ax, ay, 30)
 
     love.graphics.setFont(fonts.h2)
     love.graphics.setColor(ui.textMain)
-    love.graphics.print(p.username, px + 114, py + 58)
+    local streakStr = ((p.winStreak or 0) >= 5) and ("  🔥 " .. tostring(p.winStreak)) or ""
+    love.graphics.print(p.username .. streakStr, px + 104, py + 50)
 
     if p.isRegistered and p.email and #p.email > 0 then
         love.graphics.setFont(fonts.small)
         love.graphics.setColor(ui.accentText)
-        love.graphics.print(I18N.t("profile_email") .. " " .. p.email, px + 114, py + 86)
+        love.graphics.print(I18N.t("profile_email") .. " " .. p.email, px + 104, py + 76)
     end
 
     love.graphics.setFont(fonts.small)
     love.graphics.setColor(ui.textSub)
     local bioText = (#p.bio > 0) and p.bio or I18N.t("profile_bio_empty")
-    love.graphics.print(I18N.t("profile_bio") .. " " .. bioText, px + 114, py + 108)
+    love.graphics.print(I18N.t("profile_bio") .. " " .. bioText, px + 104, py + 96)
 
-    -- ELO Rating box (Always 800 until registered!)
-    local rBoxX, rBoxY, rBoxW, rBoxH = px + pw - 220, py + 56, 186, 70
+    -- ELO Rating box (4 modes via Config.eloGraphMode)
+    local eloMode = Config.eloGraphMode or "std_blitz"
+    local curElo = (p.ratings and p.ratings[eloMode]) or p.rating or 800
+    local rBoxX, rBoxY, rBoxW, rBoxH = px + pw - 220, py + 48, 190, 66
     love.graphics.setColor(ui.btnDefault)
     love.graphics.rectangle("fill", rBoxX, rBoxY, rBoxW, rBoxH, 10, 10)
     love.graphics.setColor(ui.panelBorder)
@@ -1007,37 +1341,52 @@ local function drawProfileModal(sw, sh)
 
     love.graphics.setFont(fonts.small)
     love.graphics.setColor(ui.textSub)
-    love.graphics.printf(I18N.t("profile_rating"), rBoxX, rBoxY + 8, rBoxW, "center")
+    love.graphics.printf(I18N.t("elo_" .. eloMode), rBoxX, rBoxY + 6, rBoxW, "center")
 
-    drawStarIcon(rBoxX + 48, rBoxY + 45, 8, { 0.95, 0.78, 0.28, 1.0 })
+    drawStarIcon(rBoxX + 44, rBoxY + 42, 8, { 0.95, 0.78, 0.28, 1.0 })
     love.graphics.setFont(fonts.h2)
     love.graphics.setColor(ui.textMain)
-    love.graphics.print("ELO " .. tostring(p.rating), rBoxX + 62, rBoxY + 32)
+    love.graphics.print("ELO " .. tostring(curElo), rBoxX + 58, rBoxY + 28)
 
     love.graphics.setFont(fonts.btn)
     love.graphics.setColor(ui.textMain)
-    love.graphics.print(I18N.t("profile_games", p.gamesPlayed, p.wins, p.losses, p.draws), px + 34, py + 146)
+    love.graphics.print(I18N.t("profile_games", p.gamesPlayed, p.wins, p.losses, p.draws), px + 30, py + 124)
 
-    -- Left Column: Rating History Graph
-    local gx, gy, gw, gh = px + 34, py + 178, 340, 184
+    -- Left Column: ELO Mode Dropdown/Tabs + Rating History Graph
+    local gx, gy, gw, gh = px + 30, py + 154, 380, 194
     love.graphics.setColor(ui.bgClear)
     love.graphics.rectangle("fill", gx, gy, gw, gh, 8, 8)
     love.graphics.setColor(ui.panelBorder)
     love.graphics.rectangle("line", gx, gy, gw, gh, 8, 8)
 
-    love.graphics.setFont(fonts.small)
-    love.graphics.setColor(ui.textSub)
-    love.graphics.print(I18N.t("profile_graph"), gx + 12, gy + 8)
+    local eloModes = {
+        { id = "std_blitz",   lbl = "Клас 5м" },
+        { id = "std_bullet",  lbl = "Клас 1м" },
+        { id = "free_blitz",  lbl = "Вольн 5м" },
+        { id = "free_bullet", lbl = "Вольн 1м" }
+    }
+    local emW = (gw - 24) / 4
+    for i, em in ipairs(eloModes) do
+        drawButton("prof_elo_" .. em.id, gx + 6 + (i - 1) * (emW + 4), gy + 6, emW, 24, em.lbl, {
+            active = (eloMode == em.id),
+            font = fonts.small,
+            onClick = function()
+                Sound.play("click")
+                Config.eloGraphMode = em.id
+            end
+        })
+    end
 
-    local hist = p.ratingHistory
+    local hist = (p.ratingHistories and p.ratingHistories[eloMode]) or p.ratingHistory or { 800 }
     local minR, maxR = 760, 840
     for _, r in ipairs(hist) do
         if r - 20 < minR then minR = r - 20 end
         if r + 20 > maxR then maxR = r + 20 end
     end
-    local plotX, plotY, plotW, plotH = gx + 42, gy + 34, gw - 58, gh - 48
+    local plotX, plotY, plotW, plotH = gx + 42, gy + 44, gw - 58, gh - 58
     love.graphics.setColor(ui.panelBorder)
     love.graphics.line(plotX, plotY + plotH * 0.5, plotX + plotW, plotY + plotH * 0.5)
+    love.graphics.setFont(fonts.small)
     love.graphics.setColor(ui.textSub)
     love.graphics.print(tostring(maxR), gx + 6, plotY - 4)
     love.graphics.print(tostring(minR), gx + 6, plotY + plotH - 10)
@@ -1060,8 +1409,8 @@ local function drawProfileModal(sw, sh)
         love.graphics.circle("fill", pts[i], pts[i + 1], 4.5)
     end
 
-    -- Right Column: Scrollable Previous Matches (clipped inside frame, with Date/Time & PvP Duration!)
-    local rx, ry, rw, rh = px + 388, py + 178, 398, 184
+    -- Right Column: Scrollable Previous Matches (W/L/D badges + click to replay!)
+    local rx, ry, rw, rh = px + 424, py + 154, 426, 194
     love.graphics.setColor(ui.bgClear)
     love.graphics.rectangle("fill", rx, ry, rw, rh, 8, 8)
     love.graphics.setColor(ui.panelBorder)
@@ -1073,10 +1422,10 @@ local function drawProfileModal(sw, sh)
 
     if #p.recentMatches == 0 then
         love.graphics.setColor(ui.textSub)
-        love.graphics.printf(I18N.t("profile_no_games"), rx + 12, ry + 80, rw - 24, "center")
+        love.graphics.printf(I18N.t("profile_no_games"), rx + 12, ry + 84, rw - 24, "center")
     else
         local listX, listY, listW, listH = rx + 6, ry + 30, rw - 16, rh - 34
-        local itemH = 36
+        local itemH = 38
         local visibleItems = math.floor(listH / itemH)
         local maxScroll = math.max(0, #p.recentMatches - visibleItems)
         profileMatchScroll = math.max(0, math.min(maxScroll, profileMatchScroll))
@@ -1085,24 +1434,51 @@ local function drawProfileModal(sw, sh)
         local myY = listY + 2
         for idx = profileMatchScroll + 1, math.min(#p.recentMatches, profileMatchScroll + visibleItems + 1) do
             local m = p.recentMatches[idx]
+            local badgeChar = (m.result == "win") and "W" or ((m.result == "loss") and "L" or "D")
+            local badgeCol  = (m.result == "win") and { 0.20, 0.78, 0.42, 1.0 }
+                or ((m.result == "loss") and { 0.88, 0.26, 0.26, 1.0 } or { 0.55, 0.58, 0.64, 1.0 })
+            love.graphics.setColor(badgeCol)
+            love.graphics.rectangle("fill", listX + 4, myY + 2, 22, 22, 5, 5)
+            love.graphics.setFont(fonts.small)
+            love.graphics.setColor(1, 1, 1, 1)
+            love.graphics.printf(badgeChar, listX + 4, myY + 5, 22, "center")
+
             local formatted = Config.formatMatchRecord(m)
             local metaStr   = Config.formatMatchMeta(m)
-
-            love.graphics.setFont(fonts.small)
             love.graphics.setColor(ui.textMain)
-            love.graphics.print(formatted, listX + 6, myY)
-
+            love.graphics.print(formatted, listX + 32, myY)
             if #metaStr > 0 then
                 love.graphics.setColor(ui.textSub)
-                love.graphics.print(metaStr, listX + 6, myY + 16)
-                myY = myY + itemH
-            else
-                myY = myY + 24
+                love.graphics.print(metaStr, listX + 32, myY + 16)
             end
+
+            if m.movesList and #m.movesList > 0 then
+                table.insert(uiButtons, {
+                    id = "prof_replay_" .. idx,
+                    x = listX, y = myY, w = listW - 8, h = itemH - 2,
+                    onClick = function()
+                        Sound.play("click")
+                        isReplayMode = true
+                        replaySourceMatch = m
+                        gameLogic:reset(m.ruleMode or "standard")
+                        for _, mv in ipairs(m.movesList) do
+                            if gameLogic.ruleMode == "free" then
+                                gameLogic:placePiece(mv.x, mv.y, mv.z)
+                            else
+                                gameLogic:dropPiece(mv.x, mv.z)
+                            end
+                        end
+                        viewPly = #gameLogic.moveHistory
+                        syncMoveLogScrollToPly()
+                        renderer:resetCamera()
+                        currentScreen = "game"
+                    end
+                })
+            end
+            myY = myY + itemH
         end
         setUIScissor()
 
-        -- Visual scrollbar on the right of the Previous Matches box
         if maxScroll > 0 then
             local sbX = rx + rw - 8
             local sbY = ry + 32
@@ -1116,32 +1492,132 @@ local function drawProfileModal(sw, sh)
         end
     end
 
-    -- Achievements
+    -- Achievements (clickable icon badges!)
     love.graphics.setFont(fonts.btn)
     love.graphics.setColor(ui.textMain)
-    love.graphics.print(I18N.t("profile_achievements"), px + 34, py + 374)
+    love.graphics.print(I18N.t("profile_achievements"), px + 30, py + 356)
 
     local achList = {
-        { key = "ach_first_win", done = p.achievements.first_win },
-        { key = "ach_3d_diag",   done = p.achievements.diag_3d   },
-        { key = "ach_veteran",   done = p.achievements.veteran   }
+        { id = "first_win",      icon = "★", key = "ach_first_win",      desc = "ach_desc_first_win" },
+        { id = "diag_3d",        icon = "❖", key = "ach_3d_diag",        desc = "ach_desc_3d_diag" },
+        { id = "veteran",        icon = "10", key = "ach_veteran",       desc = "ach_desc_veteran" },
+        { id = "bot_easy",       icon = "B1", key = "ach_bot_easy",      desc = "ach_desc_bot_easy" },
+        { id = "bot_medium",     icon = "B2", key = "ach_bot_medium",    desc = "ach_desc_bot_medium" },
+        { id = "bot_hard",       icon = "B3", key = "ach_bot_hard",      desc = "ach_desc_bot_hard" },
+        { id = "wins_10",        icon = "W10", key = "ach_wins_10",      desc = "ach_desc_wins_10" },
+        { id = "wins_100",       icon = "W100", key = "ach_wins_100",    desc = "ach_desc_wins_100" },
+        { id = "wins_1000",      icon = "1K", key = "ach_wins_1000",     desc = "ach_desc_wins_1000" },
+        { id = "first_friend",   icon = "F1", key = "ach_first_friend",  desc = "ach_desc_first_friend" },
+        { id = "pioneer_1000",   icon = "#1K", key = "ach_pioneer_1000", desc = "ach_desc_pioneer_1000" },
+        { id = "tournament_win", icon = "🏆", key = "ach_tournament_win", desc = "ach_desc_tournament_win" }
     }
-    local achW = (pw - 68 - 28) / 3
+    local badgeSize = 54
+    local gap = 12
     for i, a in ipairs(achList) do
-        local abx = px + 34 + (i - 1) * (achW + 14)
-        local aby = py + 402
-        love.graphics.setColor(a.done and ui.btnActive or ui.btnDefault)
-        love.graphics.rectangle("fill", abx, aby, achW, 46, 8, 8)
-        love.graphics.setColor(ui.panelBorder)
-        love.graphics.rectangle("line", abx, aby, achW, 46, 8, 8)
-
+        local abx = px + 30 + (i - 1) * (badgeSize + gap)
+        local aby = py + 382
+        local done = p.achievements and p.achievements[a.id]
+        love.graphics.setColor(done and { 0.22, 0.68, 0.44, 1.0 } or ui.btnDefault)
+        love.graphics.rectangle("fill", abx, aby, badgeSize, 42, 8, 8)
+        love.graphics.setColor(selectedAchievementId == a.id and ui.accentText or ui.panelBorder)
+        love.graphics.rectangle("line", abx, aby, badgeSize, 42, 8, 8)
         love.graphics.setFont(fonts.small)
         love.graphics.setColor(ui.textMain)
-        love.graphics.printf(I18N.t(a.key), abx + 8, aby + 15, achW - 16, "center")
+        love.graphics.printf(a.icon, abx, aby + 13, badgeSize, "center")
+        table.insert(uiButtons, {
+            id = "ach_badge_" .. a.id,
+            x = abx, y = aby, w = badgeSize, h = 42,
+            onClick = function()
+                Sound.play("click")
+                selectedAchievementId = (selectedAchievementId == a.id) and nil or a.id
+            end
+        })
+    end
+
+    if selectedAchievementId then
+        for _, a in ipairs(achList) do
+            if a.id == selectedAchievementId then
+                love.graphics.setColor(ui.bgClear)
+                love.graphics.rectangle("fill", px + 30, py + 430, pw - 60, 28, 6, 6)
+                love.graphics.setFont(fonts.small)
+                love.graphics.setColor(ui.textMain)
+                love.graphics.print(I18N.t(a.key) .. " — " .. I18N.t(a.desc), px + 40, py + 437)
+            end
+        end
+    end
+
+    -- Friends & Requests Section
+    local fy = py + 464
+    love.graphics.setColor(ui.bgClear)
+    love.graphics.rectangle("fill", px + 30, fy, pw - 60, 86, 8, 8)
+    love.graphics.setColor(ui.panelBorder)
+    love.graphics.rectangle("line", px + 30, fy, pw - 60, 86, 8, 8)
+
+    love.graphics.setFont(fonts.small)
+    love.graphics.setColor(ui.textMain)
+    love.graphics.print(I18N.t("friends_title") .. " (" .. tostring(#(p.friends or {})) .. ")", px + 42, fy + 8)
+
+    -- Search input + Add button
+    love.graphics.setColor(ui.panelBg)
+    love.graphics.rectangle("fill", px + 160, fy + 6, 170, 24, 5, 5)
+    love.graphics.setColor(ui.panelBorder)
+    love.graphics.rectangle("line", px + 160, fy + 6, 170, 24, 5, 5)
+    love.graphics.setColor(friendSearchText ~= "" and ui.textMain or ui.textSub)
+    love.graphics.print(friendSearchText ~= "" and friendSearchText or I18N.t("friend_search"), px + 166, fy + 10)
+    drawButton("friend_add_btn", px + 338, fy + 6, 86, 24, I18N.t("friend_add"), {
+        font = fonts.small,
+        onClick = function()
+            Sound.play("click")
+            if #friendSearchText >= 3 then
+                Config.sendFriendRequest(friendSearchText)
+                friendSearchText = ""
+                Storage.save()
+            end
+        end
+    })
+
+    -- Unified Requests + Friends quick row
+    local fx = px + 42
+    for idx, req in ipairs(p.friendRequests or {}) do
+        if idx <= 2 then
+            love.graphics.setColor(ui.textSub)
+            love.graphics.print(req.name .. (req.dir == "out" and " (" .. I18N.t("friend_pending") .. ")" or ""), fx, fy + 38)
+            if req.dir == "in" then
+                drawButton("freq_acc_" .. idx, fx + 110, fy + 34, 62, 22, I18N.t("friend_accept"), {
+                    font = fonts.small, primary = true,
+                    onClick = function() Sound.play("click"); Config.acceptFriendRequest(req.name); Storage.save() end
+                })
+                drawButton("freq_dec_" .. idx, fx + 176, fy + 34, 62, 22, I18N.t("friend_decline"), {
+                    font = fonts.small,
+                    onClick = function() Sound.play("click"); Config.declineFriendRequest(req.name); Storage.save() end
+                })
+            end
+            fx = fx + 250
+        end
+    end
+    for idx, fn in ipairs(p.friends or {}) do
+        if idx <= 3 then
+            local fyRow = fy + 60
+            local fxRow = px + 42 + (idx - 1) * 265
+            love.graphics.setColor(ui.textMain)
+            love.graphics.print("• " .. fn, fxRow, fyRow + 2)
+            drawButton("fr_play_" .. idx, fxRow + 95, fyRow, 52, 20, I18N.t("friend_challenge"), {
+                font = fonts.small, primary = true,
+                onClick = function() Sound.play("click"); startNewGame(Config.GameMode.ONLINE) end
+            })
+            drawButton("fr_rem_" .. idx, fxRow + 150, fyRow, 48, 20, "X", {
+                font = fonts.small,
+                onClick = function() Sound.play("click"); Config.removeFriend(fn); Storage.save() end
+            })
+            drawButton("fr_blk_" .. idx, fxRow + 202, fyRow, 52, 20, I18N.t("friend_block"), {
+                font = fonts.small,
+                onClick = function() Sound.play("click"); Config.blockUser(fn); Storage.save() end
+            })
+        end
     end
 
     -- Bottom Buttons: Register / Sign In / Edit Profile / Log Out + Close
-    local btnY = py + ph - 58
+    local btnY = py + ph - 56
     if not p.isRegistered then
         drawButton("prof_reg", px + 34, btnY, 190, 42, I18N.t("register_btn"), {
             accent = true,
@@ -1467,17 +1943,45 @@ end
 
 local function drawRulesModal(sw, sh)
     local ui = Config.getUITheme()
-    local pw, ph = 640, 470
+    local pw, ph = 660, 500
     local px, py = (sw - pw) * 0.5, (sh - ph) * 0.5
     drawPanel(px, py, pw, ph)
 
     love.graphics.setFont(fonts.h2)
     love.graphics.setColor(ui.textMain)
-    love.graphics.printf(I18N.t("rules_title"), px, py + 22, pw, "center")
+    love.graphics.printf(I18N.t("rules_title"), px, py + 20, pw, "center")
 
+    local boxX, boxY, boxW, boxH = px + 28, py + 62, pw - 56, ph - 134
+    love.graphics.setColor(ui.bgClear)
+    love.graphics.rectangle("fill", boxX, boxY, boxW, boxH, 8, 8)
+    love.graphics.setColor(ui.panelBorder)
+    love.graphics.rectangle("line", boxX, boxY, boxW, boxH, 8, 8)
+
+    local bodyText = I18N.t("rules_body")
+    local textW = boxW - 36
+    local _, wrapped = fonts.body:getWrap(bodyText, textW)
+    local totalH = #wrapped * fonts.body:getHeight() * 1.25 + 16
+    local maxScroll = math.max(0, totalH - boxH)
+    rulesScrollOffset = math.max(0, math.min(maxScroll, rulesScrollOffset))
+
+    setUIScissor(boxX + 4, boxY + 4, boxW - 18, boxH - 8)
     love.graphics.setFont(fonts.body)
     love.graphics.setColor(ui.textSub)
-    love.graphics.printf(I18N.t("rules_body"), px + 34, py + 68, pw - 68, "left")
+    love.graphics.printf(bodyText, boxX + 14, boxY + 10 - rulesScrollOffset, textW, "left")
+    setUIScissor()
+
+    -- Визуальный скроллбар / ползунок справа
+    if maxScroll > 0 then
+        local sbX = boxX + boxW - 10
+        local sbY = boxY + 8
+        local sbH = boxH - 16
+        love.graphics.setColor(ui.panelBorder)
+        love.graphics.rectangle("fill", sbX, sbY, 5, sbH, 3, 3)
+        local thumbH = math.max(26, sbH * (boxH / totalH))
+        local thumbY = sbY + (sbH - thumbH) * (rulesScrollOffset / maxScroll)
+        love.graphics.setColor(ui.accentText)
+        love.graphics.rectangle("fill", sbX, thumbY, 5, thumbH, 3, 3)
+    end
 
     drawButton("rules_back", px + pw * 0.5 - 85, py + ph - 58, 170, 42, I18N.t("back_btn"), {
         primary = true,
@@ -1551,10 +2055,29 @@ local function drawShopScreen(sw, sh)
             local cx = 64 + (i - 1) * (cardW + cardGap) - shopScrollX
             if cx + cardW >= -20 and cx <= sw + 20 then
                 drawPanel(cx, rowY, cardW, cardH)
+                if skin.rarity == "legendary" then
+                    love.graphics.setColor(0.95, 0.76, 0.14, 0.24)
+                    love.graphics.rectangle("fill", cx + 2, rowY + 2, cardW - 4, cardH - 4, 14, 14)
+                    love.graphics.setColor(0.98, 0.82, 0.22, 0.90)
+                    love.graphics.setLineWidth(2)
+                    love.graphics.rectangle("line", cx, rowY, cardW, cardH, 14, 14)
+                elseif skin.rarity == "epic" then
+                    love.graphics.setColor(0.62, 0.24, 0.88, 0.24)
+                    love.graphics.rectangle("fill", cx + 2, rowY + 2, cardW - 4, cardH - 4, 14, 14)
+                    love.graphics.setColor(0.74, 0.36, 0.98, 0.90)
+                    love.graphics.setLineWidth(2)
+                    love.graphics.rectangle("line", cx, rowY, cardW, cardH, 14, 14)
+                end
 
                 love.graphics.setFont(fonts.btn)
                 love.graphics.setColor(ui.textMain)
-                love.graphics.printf(I18N.t(skin.nameKey), cx + 12, rowY + 18, cardW - 24, "center")
+                love.graphics.printf(I18N.t(skin.nameKey), cx + 12, rowY + 14, cardW - 24, "center")
+                if skin.upgradeable then
+                    local wCount = (Config.skinWins and Config.skinWins[skinId]) or 0
+                    love.graphics.setFont(fonts.small)
+                    love.graphics.setColor(0.98, 0.84, 0.28, 1.0)
+                    love.graphics.printf(I18N.t("skin_upgrade_hint", math.min(10, wCount)), cx + 10, rowY + 42, cardW - 20, "center")
+                end
 
                 local prevX, prevY, prevW, prevH = cx + 18, rowY + 62, cardW - 36, 250
                 love.graphics.setColor(ui.bgClear)
@@ -1995,16 +2518,6 @@ local function drawCleanGameHUD(sw, sh)
         end
     end
 
-    -- Rewind banner if user stepped back in history using arrow keys
-    if totalHalfMoves > 0 and viewPly < totalHalfMoves then
-        local rbW, rbH = 420, 34
-        local rbX, rbY = (sw - rbW) * 0.5, 80
-        drawPanel(rbX, rbY, rbW, rbH)
-        love.graphics.setFont(fonts.small)
-        love.graphics.setColor(ui.accentText)
-        love.graphics.printf(I18N.t("rewound_banner", viewPly, totalHalfMoves), rbX + 10, rbY + 9, rbW - 20, "center")
-    end
-
     -- 3. CENTER SCREEN POPUP AFTER VICTORY / DRAW (Toggle with F / А to inspect board!)
     if gameLogic.isGameOver and not activeDrop then
         if not hideWinModal then
@@ -2104,6 +2617,7 @@ function love.draw()
             maxPly        = viewPly,
             hoveredX      = hoveredX,
             hoveredZ      = hoveredZ,
+            hoveredY      = hoveredY,
             activeDrop    = activeDrop,
             showScattered = false,
             showCoords    = true,
@@ -2158,9 +2672,29 @@ function love.draw()
                 drawSettingsModal(sw, sh)
             elseif currentScreen == "rules_modal" then
                 drawRulesModal(sw, sh)
+            elseif currentScreen == "tournament_modal" then
+                drawTournamentModal(sw, sh)
             end
         end
         love.graphics.pop()
+    end
+
+    -- Новогодний лёгкий снежок и морозная окантовка по краям экрана
+    if Config.selectedUITheme == "new_year" then
+        for _, sf in ipairs(snowflakes) do
+            love.graphics.setColor(0.94, 0.98, 1.0, 0.72)
+            love.graphics.circle("fill", sf.x * realW, sf.y * realH, sf.r)
+        end
+        love.graphics.setColor(0.76, 0.90, 1.0, 0.22)
+        love.graphics.setLineWidth(14)
+        love.graphics.rectangle("line", 2, 2, realW - 4, realH - 4, 18, 18)
+        love.graphics.setColor(0.88, 0.96, 1.0, 0.35)
+        love.graphics.setLineWidth(4)
+        love.graphics.rectangle("line", 0, 0, realW, realH, 16, 16)
+    elseif Config.selectedUITheme == "halloween" then
+        love.graphics.setColor(0.95, 0.42, 0.08, 0.14)
+        love.graphics.setLineWidth(10)
+        love.graphics.rectangle("line", 2, 2, realW - 4, realH - 4, 14, 14)
     end
 end
 
@@ -2278,22 +2812,21 @@ function love.mousereleased(x, y, button)
                 end
             end
 
-            if currentScreen == "game" and not gameLogic.isGameOver and not activeDrop and isLocalPlayerTurn() then
-                local gx, gz = renderer:pickPegAtScreenPos(x, y, realW, realH, gameLogic)
+            if currentScreen == "game" and not isReplayMode and not gameLogic.isGameOver and not activeDrop and isLocalPlayerTurn() then
+                local gx, gz, gy = renderer:pickPegAtScreenPos(x, y, realW, realH, gameLogic)
                 if gx and gz then
                     if isTouchDevice then
-                        -- On mobile / touch screens: 1st tap highlights peg, 2nd tap on same peg drops piece!
-                        if hoveredX == gx and hoveredZ == gz then
-                            triggerMove(gx, gz)
+                        if hoveredX == gx and hoveredZ == gz and hoveredY == gy then
+                            triggerMove(gx, gz, false, gy)
                         else
                             Sound.play("hover")
-                            hoveredX, hoveredZ = gx, gz
+                            hoveredX, hoveredZ, hoveredY = gx, gz, gy
                         end
                     else
-                        triggerMove(gx, gz)
+                        triggerMove(gx, gz, false, gy)
                     end
                 elseif isTouchDevice then
-                    hoveredX, hoveredZ = nil, nil
+                    hoveredX, hoveredZ, hoveredY = nil, nil, nil
                 end
             end
         end
@@ -2366,12 +2899,35 @@ function love.wheelmoved(wx, wy)
     elseif currentScreen == "profile_modal" and wy ~= 0 then
         local maxScroll = math.max(0, #Config.profile.recentMatches - 4)
         profileMatchScroll = math.max(0, math.min(maxScroll, profileMatchScroll - (wy > 0 and 1 or -1)))
+    elseif currentScreen == "rules_modal" and wy ~= 0 then
+        rulesScrollOffset = math.max(0, rulesScrollOffset - wy * 34)
     elseif currentScreen == "shop" and wy ~= 0 then
-        shopTargetScrollX = math.max(0, math.min(1850, shopTargetScrollX - wy * 90))
+        shopTargetScrollX = math.max(0, math.min(2800, shopTargetScrollX - wy * 90))
     end
 end
 
 function love.textinput(text)
+    if currentScreen == "tournament_modal" and tournamentUI.view == "join" then
+        if #tournamentUI.joinCode < 6 and text:match("^[a-zA-Z0-9]+$") then
+            tournamentUI.joinCode = tournamentUI.joinCode .. text:upper()
+            tournamentUI.errorMsg = nil
+        end
+        return
+    end
+    if currentScreen == "profile_modal" then
+        if #friendSearchText < 12 and text:match("^[a-zA-Z0-9_]+$") then
+            friendSearchText = friendSearchText .. text
+        end
+        return
+    end
+    if currentScreen == "tournament_modal" and tournamentUI.view == "join" and key == "backspace" then
+        tournamentUI.joinCode = tournamentUI.joinCode:sub(1, math.max(0, #tournamentUI.joinCode - 1))
+        return
+    end
+    if currentScreen == "profile_modal" and key == "backspace" then
+        friendSearchText = friendSearchText:sub(1, math.max(0, #friendSearchText - 1))
+        return
+    end
     if currentScreen == "lan_modal" and lanIpFocused then
         if #LAN.joinIP < 24 and text:match("^[0-9%.a-zA-Z%-]+$") then
             LAN.joinIP = LAN.joinIP .. text
@@ -2415,6 +2971,27 @@ function love.filedropped(file)
 end
 
 function love.keypressed(key, scancode)
+    if currentScreen == "tournament_modal" and tournamentUI.view == "join" then
+        if #tournamentUI.joinCode < 6 and text:match("^[a-zA-Z0-9]+$") then
+            tournamentUI.joinCode = tournamentUI.joinCode .. text:upper()
+            tournamentUI.errorMsg = nil
+        end
+        return
+    end
+    if currentScreen == "profile_modal" then
+        if #friendSearchText < 12 and text:match("^[a-zA-Z0-9_]+$") then
+            friendSearchText = friendSearchText .. text
+        end
+        return
+    end
+    if currentScreen == "tournament_modal" and tournamentUI.view == "join" and key == "backspace" then
+        tournamentUI.joinCode = tournamentUI.joinCode:sub(1, math.max(0, #tournamentUI.joinCode - 1))
+        return
+    end
+    if currentScreen == "profile_modal" and key == "backspace" then
+        friendSearchText = friendSearchText:sub(1, math.max(0, #friendSearchText - 1))
+        return
+    end
     if currentScreen == "lan_modal" and lanIpFocused then
         if key == "backspace" then
             LAN.joinIP = LAN.joinIP:sub(1, math.max(0, #LAN.joinIP - 1))

@@ -14,7 +14,11 @@ local FirebaseClient = {
     },
     idToken      = nil,
     localId      = nil,
-    lastSyncInfo = "Connected (connect4-a2f21)"
+    lastSyncInfo = "Connected (connect4-a2f21)",
+    sessionId    = "s_" .. tostring(math.random(100000, 999999)) .. "_" .. tostring(os.time()),
+    cachedOnlinePlayers = 1,
+    cachedActiveGames   = 0,
+    lastPresenceFetch   = -100
 }
 
 local function jsonEscape(str)
@@ -159,6 +163,7 @@ function FirebaseClient.fetchUserProfile(username)
     local wins        = tonumber(resp:match('"wins"%s*:%s*(%d+)')) or 0
     local losses      = tonumber(resp:match('"losses"%s*:%s*(%d+)')) or 0
     local draws       = tonumber(resp:match('"draws"%s*:%s*(%d+)')) or 0
+    local userNumber  = tonumber(resp:match('"userNumber"%s*:%s*(%d+)')) or 9999
     return {
         username    = uname,
         email       = email,
@@ -167,7 +172,8 @@ function FirebaseClient.fetchUserProfile(username)
         gamesPlayed = gamesPlayed,
         wins        = wins,
         losses      = losses,
-        draws       = draws
+        draws       = draws,
+        userNumber  = userNumber
     }
 end
 
@@ -208,10 +214,74 @@ function FirebaseClient.syncProfile(username, profileData)
         wins        = profileData.wins or 0,
         losses      = profileData.losses or 0,
         draws       = profileData.draws or 0,
+        userNumber  = profileData.userNumber or 1,
         updatedAt   = os.date("!%Y-%m-%dT%H:%M:%SZ")
     }
     local url = FirebaseClient.getDatabaseUrl("users/" .. safeKey)
     httpRequest("PUT", url, encodeSimpleJson(payload), true)
+end
+
+-- Real online presence heartbeat & active players/games counter
+function FirebaseClient.sendPresenceHeartbeat(username, inGame)
+    if not FirebaseClient.isConfigured() then return end
+    local url = FirebaseClient.getDatabaseUrl("presence/" .. FirebaseClient.sessionId)
+    local payload = {
+        username = username or "Guest",
+        inGame   = inGame and true or false,
+        ts       = os.time()
+    }
+    httpRequest("PUT", url, encodeSimpleJson(payload), true)
+end
+
+function FirebaseClient.fetchOnlineStats(force)
+    local now = os.time()
+    if not force and (now - FirebaseClient.lastPresenceFetch) < 12 then
+        return FirebaseClient.cachedOnlinePlayers, FirebaseClient.cachedActiveGames
+    end
+    FirebaseClient.lastPresenceFetch = now
+    if not FirebaseClient.isConfigured() then
+        return 1, 0
+    end
+    local url = FirebaseClient.getDatabaseUrl("presence")
+    local resp = httpRequest("GET", url, nil, false)
+    if not resp or resp == "" or resp == "null" or resp:match('"error"') then
+        FirebaseClient.cachedOnlinePlayers = 1
+        FirebaseClient.cachedActiveGames = 0
+        return 1, 0
+    end
+    local countPlayers = 0
+    local countGames = 0
+    for tsStr, inGameStr in resp:gmatch('"inGame"%s*:%s*(%a+)%s*,%s*"ts"%s*:%s*(%d+)') do
+        local ts = tonumber(tsStr) or 0
+        if (now - ts) <= 90 then
+            countPlayers = countPlayers + 1
+            if inGameStr == "true" then
+                countGames = countGames + 1
+            end
+        end
+    end
+    -- Also match reverse key order {"ts":..., "inGame":...}
+    if countPlayers == 0 then
+        for tsStr in resp:gmatch('"ts"%s*:%s*(%d+)') do
+            local ts = tonumber(tsStr) or 0
+            if (now - ts) <= 90 then
+                countPlayers = countPlayers + 1
+            end
+        end
+    end
+    FirebaseClient.cachedOnlinePlayers = math.max(1, countPlayers)
+    FirebaseClient.cachedActiveGames   = countGames
+    return FirebaseClient.cachedOnlinePlayers, FirebaseClient.cachedActiveGames
+end
+
+function FirebaseClient.claimNextUserNumber()
+    if not FirebaseClient.isConfigured() then return 1 end
+    local url = FirebaseClient.getDatabaseUrl("meta/userCount")
+    local resp = httpRequest("GET", url, nil, false)
+    local cur = tonumber(resp) or 0
+    local nextNum = cur + 1
+    httpRequest("PUT", url, tostring(nextNum), true)
+    return nextNum
 end
 
 -- Push completed match record to Realtime Database asynchronously

@@ -41,10 +41,11 @@ function BoardLogic.formatCoord(x, y, z)
     return string.format("%s%s.%d", col, row, y)
 end
 
-function BoardLogic.new()
+function BoardLogic.new(ruleMode)
     local self = setmetatable({}, BoardLogic)
+    self.ruleMode = (ruleMode == "free") and "free" or "standard"
     self.allWinningLines = self:_precomputeWinningLines()
-    self:reset()
+    self:reset(self.ruleMode)
     return self
 end
 
@@ -90,10 +91,18 @@ function BoardLogic:_precomputeWinningLines()
     return lines
 end
 
-function BoardLogic:reset()
+function BoardLogic:reset(ruleMode)
+    if ruleMode == "free" or ruleMode == "standard" then
+        self.ruleMode = ruleMode
+    end
     self.pegs = {}
+    self.grid = {}
     for x = 1, 4 do
         self.pegs[x] = {}
+        self.grid[x] = {}
+        for y = 1, 4 do
+            self.grid[x][y] = {}
+        end
         for z = 1, 4 do
             self.pegs[x][z] = {}
         end
@@ -111,21 +120,112 @@ end
 function BoardLogic:canDrop(x, z)
     if self.isGameOver then return false end
     if x < 1 or x > 4 or z < 1 or z > 4 then return false end
+    if self.ruleMode == "free" then
+        for y = 1, 4 do
+            if self:getCell(x, y, z) == BoardLogic.Player.NONE then
+                return true
+            end
+        end
+        return false
+    end
     return #self.pegs[x][z] < 4
+end
+
+function BoardLogic:canPlace(x, y, z)
+    if self.isGameOver then return false end
+    if not inBounds(x, y, z) then return false end
+    if self.ruleMode == "free" then
+        return self:getCell(x, y, z) == BoardLogic.Player.NONE
+    else
+        return y == (#self.pegs[x][z] + 1)
+    end
 end
 
 function BoardLogic:getPegHeight(x, z)
     return #self.pegs[x][z]
 end
 
+function BoardLogic:getNextEmptyY(x, z)
+    if not inBounds(x, 1, z) then return nil end
+    if self.ruleMode == "free" then
+        for y = 1, 4 do
+            if self:getCell(x, y, z) == BoardLogic.Player.NONE then
+                return y
+            end
+        end
+        return nil
+    end
+    local h = #self.pegs[x][z]
+    return (h < 4) and (h + 1) or nil
+end
+
 function BoardLogic:getCell(x, y, z)
     if not inBounds(x, y, z) then
         return BoardLogic.Player.NONE
     end
+    if self.ruleMode == "free" then
+        return self.grid[x][y][z] or BoardLogic.Player.NONE
+    end
     return self.pegs[x][z][y] or BoardLogic.Player.NONE
 end
 
+function BoardLogic:placePiece(x, y, z)
+    if self.ruleMode ~= "free" then
+        return self:dropPiece(x, z)
+    end
+    if not self:canPlace(x, y, z) then
+        return { ok = false }
+    end
+
+    local movedPlayer = self.currentPlayer
+    self.grid[x][y][z] = movedPlayer
+
+    local notation = BoardLogic.formatCoord(x, y, z)
+    local placedPos = {
+        x = x,
+        y = y,
+        z = z,
+        player = movedPlayer,
+        notation = notation
+    }
+    table.insert(self.moveHistory, placedPos)
+
+    if self:_checkWinForPlayer(movedPlayer) then
+        self.winner = movedPlayer
+        self.isGameOver = true
+    elseif #self.moveHistory >= BoardLogic.MAX_MOVES then
+        self.isDraw = true
+        self.isGameOver = true
+    else
+        if self.currentPlayer == BoardLogic.Player.WHITE then
+            self.currentPlayer = BoardLogic.Player.BLACK
+        else
+            self.currentPlayer = BoardLogic.Player.WHITE
+        end
+    end
+
+    return {
+        ok = true,
+        player = movedPlayer,
+        pos = placedPos,
+        notation = notation,
+        winner = self.winner,
+        isDraw = self.isDraw,
+        isGameOver = self.isGameOver,
+        winningLine = self.winningLine,
+        winningLineType = self.winningLineType
+    }
+end
+
 function BoardLogic:dropPiece(x, z)
+    if self.ruleMode == "free" then
+        for y = 1, 4 do
+            if self:canPlace(x, y, z) then
+                return self:placePiece(x, y, z)
+            end
+        end
+        return { ok = false }
+    end
     if not self:canDrop(x, z) then
         return { ok = false }
     end
@@ -133,6 +233,7 @@ function BoardLogic:dropPiece(x, z)
     local movedPlayer = self.currentPlayer
     table.insert(self.pegs[x][z], movedPlayer)
     local y = #self.pegs[x][z]
+    self.grid[x][y][z] = movedPlayer
 
     local notation = BoardLogic.formatCoord(x, y, z)
     local placedPos = {

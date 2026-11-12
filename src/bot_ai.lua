@@ -7,22 +7,49 @@ local WIN_SCORE = 100000
 
 local function getValidMoves(logic)
     local moves = {}
-    for x = 1, 4 do
-        for z = 1, 4 do
-            if logic:canDrop(x, z) then
-                table.insert(moves, { x = x, z = z })
+    if logic.ruleMode == "free" then
+        for x = 1, 4 do
+            for y = 1, 4 do
+                for z = 1, 4 do
+                    if logic:canPlace(x, y, z) then
+                        table.insert(moves, { x = x, y = y, z = z })
+                    end
+                end
+            end
+        end
+    else
+        for x = 1, 4 do
+            for z = 1, 4 do
+                if logic:canDrop(x, z) then
+                    table.insert(moves, { x = x, y = #logic.pegs[x][z] + 1, z = z })
+                end
             end
         end
     end
     return moves
 end
 
-local function wouldMoveWin(logic, x, z, player)
-    local stack = logic.pegs[x][z]
-    if #stack >= 4 then return false end
-    table.insert(stack, player)
+local function pushTempMove(logic, m, player)
+    if logic.ruleMode == "free" then
+        logic.grid[m.x][m.y][m.z] = player
+    else
+        table.insert(logic.pegs[m.x][m.z], player)
+    end
+end
+
+local function popTempMove(logic, m)
+    if logic.ruleMode == "free" then
+        logic.grid[m.x][m.y][m.z] = BoardLogic.Player.NONE
+    else
+        table.remove(logic.pegs[m.x][m.z])
+    end
+end
+
+local function wouldMoveWin(logic, m, player)
+    if not logic:canPlace(m.x, m.y, m.z) then return false end
+    pushTempMove(logic, m, player)
     local wins = logic:_checkWinForPlayer(player)
-    table.remove(stack)
+    popTempMove(logic, m)
     logic.winningLine = nil
     logic.winningLineType = ""
     return wins
@@ -68,11 +95,12 @@ local function alphabeta(logic, depth, alpha, beta, maximizing, botPlayer, human
         return 0
     end
 
+    local maxBranch = (logic.ruleMode == "free") and 16 or #moves
     if maximizing then
         local value = -9999999
-        for _, m in ipairs(moves) do
-            local stack = logic.pegs[m.x][m.z]
-            table.insert(stack, botPlayer)
+        for i = 1, math.min(#moves, maxBranch) do
+            local m = moves[i]
+            pushTempMove(logic, m, botPlayer)
             local s
             if logic:_checkWinForPlayer(botPlayer) then
                 s = WIN_SCORE + depth * 100
@@ -81,7 +109,7 @@ local function alphabeta(logic, depth, alpha, beta, maximizing, botPlayer, human
             else
                 s = alphabeta(logic, depth - 1, alpha, beta, false, botPlayer, humanPlayer)
             end
-            table.remove(stack)
+            popTempMove(logic, m)
 
             if s > value then value = s end
             if value > alpha then alpha = value end
@@ -90,9 +118,9 @@ local function alphabeta(logic, depth, alpha, beta, maximizing, botPlayer, human
         return value
     else
         local value = 9999999
-        for _, m in ipairs(moves) do
-            local stack = logic.pegs[m.x][m.z]
-            table.insert(stack, humanPlayer)
+        for i = 1, math.min(#moves, maxBranch) do
+            local m = moves[i]
+            pushTempMove(logic, m, humanPlayer)
             local s
             if logic:_checkWinForPlayer(humanPlayer) then
                 s = -WIN_SCORE - depth * 100
@@ -101,7 +129,7 @@ local function alphabeta(logic, depth, alpha, beta, maximizing, botPlayer, human
             else
                 s = alphabeta(logic, depth - 1, alpha, beta, true, botPlayer, humanPlayer)
             end
-            table.remove(stack)
+            popTempMove(logic, m)
 
             if s < value then value = s end
             if value < beta then beta = value end
@@ -122,7 +150,7 @@ function BotAI.chooseMove(logic, difficulty)
 
     -- 1. Если бот может победить одним ходом — всегда выигрываем
     for _, m in ipairs(validMoves) do
-        if wouldMoveWin(logic, m.x, m.z, botPlayer) then
+        if wouldMoveWin(logic, m, botPlayer) then
             return m
         end
     end
@@ -131,7 +159,7 @@ function BotAI.chooseMove(logic, difficulty)
     if difficulty == Config.BotDifficulty.EASY then
         if love.math.random() < 0.55 then
             for _, m in ipairs(validMoves) do
-                if wouldMoveWin(logic, m.x, m.z, humanPlayer) then
+                if wouldMoveWin(logic, m, humanPlayer) then
                     return m
                 end
             end
@@ -141,29 +169,30 @@ function BotAI.chooseMove(logic, difficulty)
 
     -- 3. На Средней и Сложной всегда блокируем немедленную угрозу 4-в-ряд соперника
     for _, m in ipairs(validMoves) do
-        if wouldMoveWin(logic, m.x, m.z, humanPlayer) then
+        if wouldMoveWin(logic, m, humanPlayer) then
             return m
         end
     end
 
-    -- 4. Поиск лучшего хода с оценкой 76 линий (глубина 2 для Среднего, глубина 3 для Сложного)
-    local searchDepth = (difficulty == Config.BotDifficulty.HARD) and 3 or 2
+    -- 4. Поиск лучшего хода с оценкой 76 линий
+    local searchDepth = (difficulty == Config.BotDifficulty.HARD) and ((logic.ruleMode == "free") and 2 or 3) or 2
 
     -- Сортируем ходы ближе к центру куба для лучшего отсечения
     table.sort(validMoves, function(a, b)
-        local da = math.abs(a.x - 2.5) + math.abs(a.z - 2.5)
-        local db = math.abs(b.x - 2.5) + math.abs(b.z - 2.5)
+        local da = math.abs(a.x - 2.5) + math.abs((a.y or 2.5) - 2.5) + math.abs(a.z - 2.5)
+        local db = math.abs(b.x - 2.5) + math.abs((b.y or 2.5) - 2.5) + math.abs(b.z - 2.5)
         return da < db
     end)
 
     local bestScore = -9999999
     local bestMoves = {}
+    local maxRoot = (logic.ruleMode == "free") and 24 or #validMoves
 
-    for _, m in ipairs(validMoves) do
-        local stack = logic.pegs[m.x][m.z]
-        table.insert(stack, botPlayer)
+    for i = 1, math.min(#validMoves, maxRoot) do
+        local m = validMoves[i]
+        pushTempMove(logic, m, botPlayer)
         local score = alphabeta(logic, searchDepth - 1, -9999999, 9999999, false, botPlayer, humanPlayer)
-        table.remove(stack)
+        popTempMove(logic, m)
 
         if score > bestScore then
             bestScore = score

@@ -253,6 +253,88 @@ local SHADER_PIXEL = [[
             vec3 chocoCol = vec3(0.32, 0.16, 0.08);
             surfaceAlbedo = mix(waferCol, chocoCol, chocoStripe * 0.78);
             specFactor = mix(0.22, 0.65, chocoStripe);
+        } else if (u_materialType > 9.5 && u_materialType < 10.5) {
+            // 10: Снеговик — искристый плотный снег
+            float sparkle = step(0.92, woodHash3(floor(v_worldPos * 26.0)));
+            float grain = woodNoise3(v_worldPos * 14.0);
+            surfaceAlbedo = mix(u_baseColor.rgb * 0.90, u_baseColor.rgb * 1.08, grain) + vec3(sparkle * 0.22);
+            specFactor = 0.45 + sparkle * 0.4;
+        } else if (u_materialType > 10.5 && u_materialType < 11.5) {
+            // 11: Небоскрёбы Манхэттена в вечернем свете (тёмное стекло + светящиеся окна)
+            if (N.y > 0.5) {
+                float roofTex = woodNoise3(v_worldPos * 8.0);
+                surfaceAlbedo = mix(vec3(0.10, 0.12, 0.16), vec3(0.18, 0.20, 0.26), roofTex);
+                specFactor = 0.25;
+            } else {
+                float wy = fract(v_worldPos.y * 5.2);
+                float wx = fract((v_localPos.x + v_localPos.z) * 4.5);
+                float winCell = step(0.22, wx) * step(wx, 0.78) * step(0.26, wy) * step(wy, 0.76);
+                vec3 cellId = floor(vec3((v_localPos.x + v_localPos.z) * 4.5, v_worldPos.y * 5.2, v_worldPos.x * 2.0 + v_worldPos.z * 2.0));
+                float litRand = woodHash3(cellId);
+                float isLit = step(0.46, litRand) * winCell;
+                vec3 warmWin = mix(vec3(1.0, 0.82, 0.44), vec3(0.75, 0.90, 1.0), step(0.84, litRand));
+                surfaceAlbedo = mix(vec3(0.06, 0.08, 0.13), warmWin, isLit * 0.85);
+                extraGlow += warmWin * isLit * 0.55;
+                specFactor = mix(0.75, 0.15, isLit);
+            }
+        } else if (u_materialType > 11.5 && u_materialType < 12.5) {
+            // 12: Красный авиационный маячок на шпилях Манхэттена (плавно мигает)
+            float pulse = 0.25 + 0.75 * (0.5 + 0.5 * sin(u_time * 1.5));
+            surfaceAlbedo = vec3(0.85, 0.08, 0.08);
+            extraGlow += vec3(1.0, 0.14, 0.10) * pulse * 0.95;
+            specFactor = 0.9;
+        } else if (u_materialType > 12.5 && u_materialType < 13.5) {
+            // 13: Японская традиционная черепичная крыша (пагода)
+            if (N.y > 0.2) {
+                float tileRib = 0.5 + 0.5 * sin(v_localPos.x * 28.0) * sin(v_localPos.z * 28.0);
+                vec3 slateDark = vec3(0.11, 0.13, 0.18);
+                vec3 slateLight = vec3(0.24, 0.28, 0.36);
+                surfaceAlbedo = mix(slateDark, slateLight, tileRib);
+                float edgeMask = smoothstep(0.38, 0.48, max(abs(v_localPos.x), abs(v_localPos.z)));
+                surfaceAlbedo = mix(surfaceAlbedo, vec3(0.76, 0.18, 0.14), edgeMask * 0.55);
+                specFactor = 0.42;
+            } else {
+                surfaceAlbedo = vec3(0.26, 0.09, 0.07);
+                specFactor = 0.30;
+            }
+        } else if (u_materialType > 13.5 && u_materialType < 14.5) {
+            // 14: Хэллоуинская тыква с рёбрами и светящейся рожицей
+            float ang = atan(v_localPos.z, v_localPos.x);
+            float ribs = 0.5 + 0.5 * cos(ang * 10.0);
+            surfaceAlbedo = mix(u_baseColor.rgb * 0.72, u_baseColor.rgb * 1.15, ribs);
+            if (v_localPos.z > 0.22 && abs(v_localPos.x) < 0.26 && v_localPos.y > -0.15 && v_localPos.y < 0.22) {
+                float eyeL = length(vec2(v_localPos.x + 0.11, v_localPos.y - 0.08));
+                float eyeR = length(vec2(v_localPos.x - 0.11, v_localPos.y - 0.08));
+                float mouth = (v_localPos.y < -0.02 && v_localPos.y > -0.12 && abs(v_localPos.x) < 0.16) ? 1.0 : 0.0;
+                float carve = max(step(eyeL, 0.055), max(step(eyeR, 0.055), mouth));
+                if (carve > 0.5) {
+                    surfaceAlbedo = vec3(1.0, 0.78, 0.22);
+                    extraGlow += vec3(1.0, 0.62, 0.10) * 0.85;
+                }
+            }
+            specFactor = 0.35;
+        } else if (u_materialType > 14.5 && u_materialType < 15.5) {
+            // 15: Заснеженная зимняя доска
+            if (N.y > 0.45) {
+                float drift = woodNoise3(v_worldPos * 3.5);
+                float sparkle = step(0.93, woodHash3(floor(v_worldPos * 24.0)));
+                surfaceAlbedo = mix(vec3(0.84, 0.91, 0.98), vec3(0.98, 0.99, 1.0), drift) + vec3(sparkle * 0.25);
+                specFactor = 0.55;
+            } else {
+                surfaceAlbedo = vec3(0.45, 0.62, 0.80);
+                specFactor = 0.65;
+            }
+        } else if (u_materialType > 15.5 && u_materialType < 16.5) {
+            // 16: 3D травинки на лесном поле
+            float h = clamp((v_localPos.y + 0.5), 0.0, 1.0);
+            surfaceAlbedo = mix(vec3(0.10, 0.32, 0.09), vec3(0.38, 0.78, 0.22), h);
+            specFactor = 0.18;
+        } else if (u_materialType > 16.5 && u_materialType < 17.5) {
+            // 17: Крылья легендарной бабочки (перелив)
+            float shimmer = 0.5 + 0.5 * sin(u_time * 4.0 + v_localPos.x * 12.0);
+            surfaceAlbedo = mix(u_baseColor.rgb, vec3(0.35, 0.92, 1.0), shimmer * 0.45);
+            extraGlow += surfaceAlbedo * 0.28;
+            specFactor = 0.85;
         }
 
         vec3 L1 = normalize(vec3(0.55, 0.78, 0.48));
@@ -306,8 +388,17 @@ function Renderer3D.new()
     self.meshPineTier  = self:_buildPineTierMesh(36, 18)
     self.meshPeg       = self:_buildPegMesh(Renderer3D.PEG_RADIUS, Renderer3D.PEG_HEIGHT, 24)
     self.meshCylinder  = self:_buildUnitCylinderMesh(24)
-    self.meshRoundBase = self:_buildCappedDiscMesh(64)
-    self.meshBox       = self:_buildUnitBoxMesh()
+    self.meshRoundBase    = self:_buildCappedDiscMesh(64)
+    self.meshBox          = self:_buildUnitBoxMesh()
+    self.meshPineConeTip  = self:_buildPineConeTipMesh(32)
+    self.meshThinTorus    = self:_buildTorusMesh(0.355, 0.082, 36, 18)
+    self.meshBead         = self:_buildTorusMesh(0.24, 0.20, 32, 20)
+    self.meshSphere       = self:_buildSphereMesh(22, 14)
+    self.meshPumpkin      = self:_buildPumpkinMesh(28, 16)
+    self.meshTopHat       = self:_buildTopHatMesh(24)
+    self.meshGrassTuft    = self:_buildGrassTuftMesh()
+    self.meshJapaneseRoof = self:_buildJapaneseRoofMesh(16)
+    self.meshButterflyWing = self:_buildButterflyWingMesh()
 
     -- Разбросанные фишки рядом с полем (полностью за пределами и круглого, и квадратного основания)
     local baseY = -Renderer3D.BASE_THICKNESS + 0.21
@@ -622,6 +713,179 @@ function Renderer3D:_buildUnitBoxMesh()
     return love.graphics.newMesh(VERTEX_FORMAT, verts, "triangles", "static")
 end
 
+-- Закрытая конусная верхушка ёлки (полностью накрывает штырь)
+function Renderer3D:_buildPineConeTipMesh(segs)
+    local verts = {}
+    local r = 0.44
+    local yBot, yTop = -0.18, 0.40
+    local ny = r / math.sqrt(r*r + (yTop - yBot)^2)
+    local nr = (yTop - yBot) / math.sqrt(r*r + (yTop - yBot)^2)
+    for i = 0, segs - 1 do
+        local a0 = (i / segs) * math.pi * 2
+        local a1 = ((i + 1) / segs) * math.pi * 2
+        local c0, s0 = math.cos(a0), math.sin(a0)
+        local c1, s1 = math.cos(a1), math.sin(a1)
+        table.insert(verts, { c0*r, yBot, s0*r, c0*nr, ny, s0*nr })
+        table.insert(verts, { c1*r, yBot, s1*r, c1*nr, ny, s1*nr })
+        table.insert(verts, { 0, yTop, 0, (c0+c1)*0.5*nr, ny, (s0+s1)*0.5*nr })
+        -- Нижняя крышка
+        table.insert(verts, { 0, yBot, 0, 0, -1, 0 })
+        table.insert(verts, { c0*r, yBot, s0*r, 0, -1, 0 })
+        table.insert(verts, { c1*r, yBot, s1*r, 0, -1, 0 })
+    end
+    return love.graphics.newMesh(VERTEX_FORMAT, verts, "triangles", "static")
+end
+
+function Renderer3D:_buildSphereMesh(segs, rings)
+    local verts = {}
+    local r = 0.5
+    for j = 0, rings - 1 do
+        local p0 = (j / rings) * math.pi - math.pi * 0.5
+        local p1 = ((j + 1) / rings) * math.pi - math.pi * 0.5
+        local cp0, sp0 = math.cos(p0), math.sin(p0)
+        local cp1, sp1 = math.cos(p1), math.sin(p1)
+        for i = 0, segs - 1 do
+            local t0 = (i / segs) * math.pi * 2
+            local t1 = ((i + 1) / segs) * math.pi * 2
+            local c0, s0 = math.cos(t0), math.sin(t0)
+            local c1, s1 = math.cos(t1), math.sin(t1)
+            local v00 = { c0*cp0*r, sp0*r, s0*cp0*r, c0*cp0, sp0, s0*cp0 }
+            local v10 = { c1*cp0*r, sp0*r, s1*cp0*r, c1*cp0, sp0, s1*cp0 }
+            local v11 = { c1*cp1*r, sp1*r, s1*cp1*r, c1*cp1, sp1, s1*cp1 }
+            local v01 = { c0*cp1*r, sp1*r, s0*cp1*r, c0*cp1, sp1, s0*cp1 }
+            table.insert(verts, v00); table.insert(verts, v10); table.insert(verts, v11)
+            table.insert(verts, v00); table.insert(verts, v11); table.insert(verts, v01)
+        end
+    end
+    return love.graphics.newMesh(VERTEX_FORMAT, verts, "triangles", "static")
+end
+
+function Renderer3D:_buildPumpkinMesh(segs, rings)
+    local verts = {}
+    local function pPoint(t, p)
+        local rib = 1.0 + 0.09 * math.cos(t * 10.0)
+        local rx = 0.48 * math.cos(p) * rib
+        local ry = 0.34 * math.sin(p)
+        return math.cos(t)*rx, ry, math.sin(t)*rx, math.cos(t)*math.cos(p), math.sin(p), math.sin(t)*math.cos(p)
+    end
+    for j = 0, rings - 1 do
+        local p0 = (j / rings) * math.pi - math.pi * 0.5
+        local p1 = ((j + 1) / rings) * math.pi - math.pi * 0.5
+        for i = 0, segs - 1 do
+            local t0 = (i / segs) * math.pi * 2
+            local t1 = ((i + 1) / segs) * math.pi * 2
+            local v00 = { pPoint(t0, p0) }
+            local v10 = { pPoint(t1, p0) }
+            local v11 = { pPoint(t1, p1) }
+            local v01 = { pPoint(t0, p1) }
+            table.insert(verts, v00); table.insert(verts, v10); table.insert(verts, v11)
+            table.insert(verts, v00); table.insert(verts, v11); table.insert(verts, v01)
+        end
+    end
+    return love.graphics.newMesh(VERTEX_FORMAT, verts, "triangles", "static")
+end
+
+-- Чёрный цилиндр-шляпа для верхушки снеговика
+function Renderer3D:_buildTopHatMesh(segs)
+    local verts = {}
+    local function addRing(rBot, rTop, yBot, yTop)
+        for i = 0, segs - 1 do
+            local a0 = (i / segs) * math.pi * 2
+            local a1 = ((i + 1) / segs) * math.pi * 2
+            local c0, s0 = math.cos(a0), math.sin(a0)
+            local c1, s1 = math.cos(a1), math.sin(a1)
+            table.insert(verts, { c0*rBot, yBot, s0*rBot, c0, 0, s0 })
+            table.insert(verts, { c1*rBot, yBot, s1*rBot, c1, 0, s1 })
+            table.insert(verts, { c1*rTop, yTop, s1*rTop, c1, 0, s1 })
+            table.insert(verts, { c0*rBot, yBot, s0*rBot, c0, 0, s0 })
+            table.insert(verts, { c1*rTop, yTop, s1*rTop, c1, 0, s1 })
+            table.insert(verts, { c0*rTop, yTop, s0*rTop, c0, 0, s0 })
+            table.insert(verts, { 0, yTop, 0, 0, 1, 0 })
+            table.insert(verts, { c1*rTop, yTop, s1*rTop, 0, 1, 0 })
+            table.insert(verts, { c0*rTop, yTop, s0*rTop, 0, 1, 0 })
+        end
+    end
+    addRing(0.42, 0.42, -0.18, -0.12) -- Поля шляпы
+    addRing(0.26, 0.28, -0.12, 0.34)  -- Тулья цилиндра
+    return love.graphics.newMesh(VERTEX_FORMAT, verts, "triangles", "static")
+end
+
+-- Пучок 3D-травинок для лесного поля
+function Renderer3D:_buildGrassTuftMesh()
+    local verts = {}
+    local blades = {
+        { ang = 0.0, lean = 0.22, h = 0.95, w = 0.14 },
+        { ang = 2.1, lean = 0.28, h = 0.85, w = 0.13 },
+        { ang = 4.2, lean = 0.20, h = 1.00, w = 0.12 },
+    }
+    for _, b in ipairs(blades) do
+        local ca, sa = math.cos(b.ang), math.sin(b.ang)
+        local px, pz = -sa * b.w, ca * b.w
+        local tx, tz = ca * b.lean, sa * b.lean
+        local v1 = { -px, -0.5, -pz, ca, 0.3, sa }
+        local v2 = {  px, -0.5,  pz, ca, 0.3, sa }
+        local v3 = {  tx,  b.h - 0.5, tz, ca, 0.5, sa }
+        table.insert(verts, v1); table.insert(verts, v2); table.insert(verts, v3)
+        table.insert(verts, v1); table.insert(verts, v3); table.insert(verts, v2)
+    end
+    return love.graphics.newMesh(VERTEX_FORMAT, verts, "triangles", "static")
+end
+
+-- Изогнутая японская крыша пагоды (не круглая и не квадратная — вогнутые скаты и загнутые вверх углы)
+function Renderer3D:_buildJapaneseRoofMesh(gridN)
+    local verts = {}
+    local function roofHeight(nx, nz)
+        local r2 = nx*nx + nz*nz
+        local cornerLift = 0.55 * (nx*nx * nz*nz) * 4.0
+        local sag = -0.35 * math.sqrt(r2 + 0.02)
+        return 0.42 + sag + cornerLift
+    end
+    local function roofOutline(nx, nz)
+        -- Звёздно-изогнутый контур с загнутыми краями
+        local pinch = 1.0 + 0.16 * (nx*nx * nz*nz) * 16.0 - 0.08 * math.cos(math.atan2(nz, nx) * 4.0)
+        return nx * pinch * 0.52, nz * pinch * 0.52
+    end
+    for i = 0, gridN - 1 do
+        for j = 0, gridN - 1 do
+            local x0 = (i / gridN) * 2 - 1
+            local x1 = ((i + 1) / gridN) * 2 - 1
+            local z0 = (j / gridN) * 2 - 1
+            local z1 = ((j + 1) / gridN) * 2 - 1
+            local px00, pz00 = roofOutline(x0, z0); local py00 = roofHeight(x0, z0)
+            local px10, pz10 = roofOutline(x1, z0); local py10 = roofHeight(x1, z0)
+            local px11, pz11 = roofOutline(x1, z1); local py11 = roofHeight(x1, z1)
+            local px01, pz01 = roofOutline(x0, z1); local py01 = roofHeight(x0, z1)
+            table.insert(verts, { px00, py00, pz00, 0, 1, 0 })
+            table.insert(verts, { px10, py10, pz10, 0, 1, 0 })
+            table.insert(verts, { px11, py11, pz11, 0, 1, 0 })
+            table.insert(verts, { px00, py00, pz00, 0, 1, 0 })
+            table.insert(verts, { px11, py11, pz11, 0, 1, 0 })
+            table.insert(verts, { px01, py01, pz01, 0, 1, 0 })
+            -- Толщина крыши снизу
+            table.insert(verts, { px00, py00 - 0.45, pz00, 0, -1, 0 })
+            table.insert(verts, { px11, py11 - 0.45, pz11, 0, -1, 0 })
+            table.insert(verts, { px10, py10 - 0.45, pz10, 0, -1, 0 })
+            table.insert(verts, { px00, py00 - 0.45, pz00, 0, -1, 0 })
+            table.insert(verts, { px01, py01 - 0.45, pz01, 0, -1, 0 })
+            table.insert(verts, { px11, py11 - 0.45, pz11, 0, -1, 0 })
+        end
+    end
+    return love.graphics.newMesh(VERTEX_FORMAT, verts, "triangles", "static")
+end
+
+-- Крыло бабочки для легендарного скина
+function Renderer3D:_buildButterflyWingMesh()
+    local verts = {
+        { 0.0, 0.0,  0.0, 0, 1, 0 },
+        { 0.9, 0.1, -0.5, 0, 1, 0 },
+        { 1.0, 0.0,  0.2, 0, 1, 0 },
+        { 0.0, 0.0,  0.0, 0, 1, 0 },
+        { 1.0, 0.0,  0.2, 0, 1, 0 },
+        { 0.65, 0.0, 0.75, 0, 1, 0 },
+    }
+    return love.graphics.newMesh(VERTEX_FORMAT, verts, "triangles", "static")
+end
+
 function Renderer3D:pickPegAtScreenPos(mx, my, screenW, screenH, boardLogic)
     local aspect = screenW / screenH
     local f = 1.0 / math.tan(self.fovRad * 0.5)
@@ -635,13 +899,25 @@ function Renderer3D:pickPegAtScreenPos(mx, my, screenW, screenH, boardLogic)
         z = self.camFwd.z + self.camRight.z * (ndcX * aspect / f) + self.camUp.z * (ndcY / f)
     })
 
-    local bestX, bestZ = nil, nil
+    local bestX, bestZ, bestY = nil, nil, nil
     local bestT = 1e9
     local hitRadius = 0.36
+    local isFree = boardLogic and (boardLogic.ruleMode == "free")
 
     for gx = 1, 4 do
         for gz = 1, 4 do
-            if not boardLogic or boardLogic:canDrop(gx, gz) then
+            local pegAvailable = false
+            if not boardLogic then
+                pegAvailable = true
+            elseif isFree then
+                for ty = 1, 4 do
+                    if boardLogic:canPlace(gx, ty, gz) then pegAvailable = true; break end
+                end
+            else
+                pegAvailable = boardLogic:canDrop(gx, gz)
+            end
+
+            if pegAvailable then
                 local px, pz = self:gridToWorldXZ(gx, gz)
                 local ox = self.camPos.x - px
                 local oz = self.camPos.z - pz
@@ -661,6 +937,23 @@ function Renderer3D:pickPegAtScreenPos(mx, my, screenW, screenH, boardLogic)
                             if hitY >= -0.2 and hitY <= Renderer3D.PEG_HEIGHT + 0.35 then
                                 bestT = t
                                 bestX, bestZ = gx, gz
+                                if isFree then
+                                    local bestDist = 1e9
+                                    local chosenY = nil
+                                    for ty = 1, 4 do
+                                        if boardLogic:canPlace(gx, ty, gz) then
+                                            local py = self:pieceWorldY(ty)
+                                            local d = math.abs(hitY - py)
+                                            if d < bestDist then
+                                                bestDist = d
+                                                chosenY = ty
+                                            end
+                                        end
+                                    end
+                                    bestY = chosenY
+                                else
+                                    bestY = boardLogic and boardLogic:getNextEmptyY(gx, gz) or 1
+                                end
                                 break
                             end
                         end
@@ -670,17 +963,33 @@ function Renderer3D:pickPegAtScreenPos(mx, my, screenW, screenH, boardLogic)
         end
     end
 
-    return bestX, bestZ
+    return bestX, bestZ, bestY
 end
 
-function Renderer3D:_getPieceMaterialAndMesh(pieceSkin, player)
+function Renderer3D:_getPieceMaterialAndMesh(pieceSkin, player, gy)
     local style = pieceSkin and pieceSkin.style or "wood"
     if style == "donut" then
         return 1.0, self.meshTorus
     elseif style == "pine" then
+        if gy == 4 then
+            return 2.0, self.meshPineConeTip
+        end
         return 2.0, self.meshPineTier
     elseif style == "nuclear" then
         return (player == 1) and 3.0 or 4.0, self.meshTorus
+    elseif style == "thin" then
+        return 7.0, self.meshThinTorus
+    elseif style == "beads" then
+        return 0.0, self.meshBead
+    elseif style == "pumpkin" then
+        return 14.0, self.meshPumpkin
+    elseif style == "snowman" then
+        if gy == 4 then
+            return 0.0, self.meshTopHat
+        end
+        return 10.0, self.meshSphere
+    elseif style == "metal" then
+        return 7.0, self.meshTorus
     end
     return 0.0, self.meshTorus
 end
@@ -729,70 +1038,238 @@ function Renderer3D:renderScene(screenW, screenH, state)
     local boardSkin = state.config.getBoardSkin()
     local pieceSkin = state.config.getPieceSkin()
     local isRound   = (state.config.boardShape == "round")
-    local isForestBoard = (boardSkin.style == "forest")
-    local isMetalBoard  = (boardSkin.style == "metal")
-    local isCakeBoard   = (boardSkin.style == "cake")
-    local baseMatType   = isForestBoard and 5.0 or (isMetalBoard and 7.0 or (isCakeBoard and 8.0 or 0.0))
-    local pegMatType    = isForestBoard and 6.0 or (isMetalBoard and 7.0 or (isCakeBoard and 9.0 or 0.0))
-    local rimMatType    = isForestBoard and 6.0 or (isMetalBoard and 7.0 or (isCakeBoard and 9.0 or 0.0))
+    local bStyle    = boardSkin.style or "wood"
+    local isForestBoard     = (bStyle == "forest")
+    local isMetalBoard      = (bStyle == "metal")
+    local isCakeBoard       = (bStyle == "cake")
+    local isSnowyBoard      = (bStyle == "snowy")
+    local isJapaneseBoard   = (bStyle == "japanese_roof")
+    local isSkyscraperBoard = (bStyle == "skyscraper")
+    local isManhattanBoard  = (bStyle == "manhattan")
+    local baseMatType = isForestBoard and 5.0
+        or (isMetalBoard and 7.0)
+        or (isCakeBoard and 8.0)
+        or (isSnowyBoard and 15.0)
+        or (isJapaneseBoard and 13.0)
+        or ((isSkyscraperBoard or isManhattanBoard) and 11.0)
+        or 0.0
+    local pegMatType = isForestBoard and 6.0
+        or ((isMetalBoard or isSkyscraperBoard or isManhattanBoard) and 7.0)
+        or (isCakeBoard and 9.0)
+        or 0.0
+    local rimMatType = isForestBoard and 6.0
+        or ((isMetalBoard or isSkyscraperBoard) and 7.0)
+        or (isCakeBoard and 9.0)
+        or (isJapaneseBoard and 13.0)
+        or 0.0
 
-    -- 1. Отрисовка базы поля (Круглое по дефолту или Квадратное)
+    -- 1. Отрисовка базы поля (или 16 небоскрёбов для Манхэттена / крыша пагоды / башня)
     local baseMesh = isRound and self.meshRoundBase or self.meshBox
     local baseSpan = isRound
         and ((Renderer3D.GRID_SIZE - 1) * Renderer3D.PEG_SPACING + 2.95)
         or  ((Renderer3D.GRID_SIZE - 1) * Renderer3D.PEG_SPACING + 2.05)
     local baseH = Renderer3D.BASE_THICKNESS
 
-    self:_drawMeshTransform(
-        baseMesh,
-        { 0.0, -baseH * 0.5 + 0.02, 0.0 },
-        { baseSpan, 0, 0 },
-        { 0, baseH, 0 },
-        { 0, 0, baseSpan },
-        boardSkin.baseColor,
-        { 0, 0, 0 },
-        isMetalBoard and 0.78 or 0.22,
-        boardSkin.woodStrength,
-        0.75,
-        baseMatType
-    )
+    if isManhattanBoard then
+        -- 16 отдельных небоскрёбов разной высоты в вечернем Манхэттене
+        local towerHeights = {
+            4.8, 3.6, 5.2, 4.1,
+            3.9, 5.4, 4.3, 4.9,
+            5.1, 4.2, 3.7, 5.3,
+            4.0, 4.7, 5.0, 3.8
+        }
+        local roofOffsets = {
+            -0.12, -0.55, -0.04, -0.38,
+            -0.44, -0.02, -0.32, -0.15,
+            -0.08, -0.35, -0.52, -0.05,
+            -0.40, -0.18, -0.10, -0.48
+        }
+        for gx = 1, 4 do
+            for gz = 1, 4 do
+                local idx = (gx - 1) * 4 + gz
+                local wx, wz = self:gridToWorldXZ(gx, gz)
+                local th = towerHeights[idx]
+                local roofY = roofOffsets[idx]
+                self:_drawMeshTransform(
+                    self.meshBox,
+                    { wx, roofY - th * 0.5, wz },
+                    { 0.96, 0, 0 },
+                    { 0, th, 0 },
+                    { 0, 0, 0.96 },
+                    boardSkin.baseColor,
+                    { 0, 0, 0 },
+                    0.65,
+                    0.0,
+                    0.75,
+                    11.0
+                )
+            end
+        end
+    elseif isJapaneseBoard then
+        self:_drawMeshTransform(
+            self.meshJapaneseRoof,
+            { 0.0, -0.18, 0.0 },
+            { baseSpan * 1.12, 0, 0 },
+            { 0, 1.05, 0 },
+            { 0, 0, baseSpan * 1.12 },
+            boardSkin.baseColor,
+            { 0, 0, 0 },
+            0.38,
+            0.0,
+            1.0,
+            13.0
+        )
+    elseif isSkyscraperBoard then
+        -- Высокий небоскрёб (круглый или квадратный)
+        self:_drawMeshTransform(
+            baseMesh,
+            { 0.0, -3.6, 0.0 },
+            { baseSpan * 0.96, 0, 0 },
+            { 0, 7.25, 0 },
+            { 0, 0, baseSpan * 0.96 },
+            boardSkin.baseColor,
+            { 0, 0, 0 },
+            0.72,
+            0.0,
+            0.8,
+            11.0
+        )
+        local rimSpan = baseSpan + 0.14
+        self:_drawMeshTransform(
+            baseMesh,
+            { 0.0, -0.02, 0.0 },
+            { rimSpan, 0, 0 },
+            { 0, 0.22, 0 },
+            { 0, 0, rimSpan },
+            { 0.22, 0.26, 0.34, 1.0 },
+            { 0, 0, 0 },
+            0.85,
+            0.0,
+            1.0,
+            7.0
+        )
+    else
+        self:_drawMeshTransform(
+            baseMesh,
+            { 0.0, -baseH * 0.5 + 0.02, 0.0 },
+            { baseSpan, 0, 0 },
+            { 0, baseH, 0 },
+            { 0, 0, baseSpan },
+            boardSkin.baseColor,
+            { 0, 0, 0 },
+            isMetalBoard and 0.78 or 0.22,
+            boardSkin.woodStrength,
+            0.75,
+            baseMatType
+        )
 
-    local rimSpan = baseSpan + 0.22
-    self:_drawMeshTransform(
-        baseMesh,
-        { 0.0, -baseH * 0.5 - 0.05, 0.0 },
-        { rimSpan, 0, 0 },
-        { 0, baseH * 0.82, 0 },
-        { 0, 0, rimSpan },
-        { boardSkin.baseColor[1] * 0.72, boardSkin.baseColor[2] * 0.72, boardSkin.baseColor[3] * 0.72, 1.0 },
-        { 0, 0, 0 },
-        isMetalBoard and 0.65 or 0.18,
-        boardSkin.woodStrength,
-        0.75,
-        rimMatType
-    )
+        local rimSpan = baseSpan + 0.22
+        self:_drawMeshTransform(
+            baseMesh,
+            { 0.0, -baseH * 0.5 - 0.05, 0.0 },
+            { rimSpan, 0, 0 },
+            { 0, baseH * 0.82, 0 },
+            { 0, 0, rimSpan },
+            { boardSkin.baseColor[1] * 0.72, boardSkin.baseColor[2] * 0.72, boardSkin.baseColor[3] * 0.72, 1.0 },
+            { 0, 0, 0 },
+            isMetalBoard and 0.65 or 0.18,
+            boardSkin.woodStrength,
+            0.75,
+            rimMatType
+        )
+    end
 
-    -- 2. Отрисовка 16 столбиков (или стволов деревьев в лесном скине)
+    -- 1b. 3D-травинки для лесного поля
+    if isForestBoard then
+        for gx = 1, 4 do
+            for gz = 1, 4 do
+                local wx, wz = self:gridToWorldXZ(gx, gz)
+                for k = 1, 4 do
+                    local ang = (gx * 1.7 + gz * 2.3 + k * 1.57)
+                    local rad = 0.28 + (k % 2) * 0.18
+                    local tx = wx + math.cos(ang) * rad
+                    local tz = wz + math.sin(ang) * rad
+                    self:_drawMeshTransform(
+                        self.meshGrassTuft,
+                        { tx, 0.12, tz },
+                        { math.cos(ang) * 0.28, 0, math.sin(ang) * 0.28 },
+                        { 0, 0.30, 0 },
+                        { -math.sin(ang) * 0.28, 0, math.cos(ang) * 0.28 },
+                        { 0.24, 0.68, 0.18, 1.0 },
+                        { 0, 0, 0 },
+                        0.15,
+                        0.0,
+                        1.0,
+                        16.0
+                    )
+                end
+            end
+        end
+    end
+
+    -- 2. Отрисовка 16 столбиков (или антенн / стволов деревьев)
+    local roofOffsetsManhattan = {
+        -0.12, -0.55, -0.04, -0.38,
+        -0.44, -0.02, -0.32, -0.15,
+        -0.08, -0.35, -0.52, -0.05,
+        -0.40, -0.18, -0.10, -0.48
+    }
     for gx = 1, 4 do
         for gz = 1, 4 do
             local wx, wz = self:gridToWorldXZ(gx, gz)
             local isHovered = (state.hoveredX == gx and state.hoveredZ == gz)
             local pColor    = isHovered and boardSkin.pegHover or boardSkin.pegColor
             local pEmissive = isHovered and { 0.28, 0.20, 0.06 } or { 0.0, 0.0, 0.0 }
+            local pegScaleXZ = (isSkyscraperBoard or isManhattanBoard) and 0.62 or 1.0
 
-            self:_drawMeshTransform(
-                self.meshPeg,
-                { wx, 0.0, wz },
-                { 1, 0, 0 },
-                { 0, 1, 0 },
-                { 0, 0, 1 },
-                pColor,
-                pEmissive,
-                isMetalBoard and 0.88 or 0.32,
-                boardSkin.woodStrength,
-                1.35,
-                pegMatType
-            )
+            if isManhattanBoard then
+                local idx = (gx - 1) * 4 + gz
+                local roofY = roofOffsetsManhattan[idx]
+                local topY = Renderer3D.PEG_HEIGHT
+                local spireH = topY - roofY
+                local spireScaleY = spireH / Renderer3D.PEG_HEIGHT
+                self:_drawMeshTransform(
+                    self.meshPeg,
+                    { wx, roofY, wz },
+                    { pegScaleXZ, 0, 0 },
+                    { 0, spireScaleY, 0 },
+                    { 0, 0, pegScaleXZ },
+                    pColor,
+                    pEmissive,
+                    0.88,
+                    0.0,
+                    1.35,
+                    7.0
+                )
+                -- Медленно мигающий красный маячок на вершине каждого шпиля
+                self:_drawMeshTransform(
+                    self.meshSphere,
+                    { wx, topY + 0.05, wz },
+                    { 0.11, 0, 0 },
+                    { 0, 0.11, 0 },
+                    { 0, 0, 0.11 },
+                    { 0.95, 0.12, 0.12, 1.0 },
+                    { 0.35, 0.03, 0.03 },
+                    0.9,
+                    0.0,
+                    1.0,
+                    12.0
+                )
+            else
+                self:_drawMeshTransform(
+                    self.meshPeg,
+                    { wx, 0.0, wz },
+                    { pegScaleXZ, 0, 0 },
+                    { 0, 1, 0 },
+                    { 0, 0, pegScaleXZ },
+                    pColor,
+                    pEmissive,
+                    (isMetalBoard or isSkyscraperBoard) and 0.88 or 0.32,
+                    boardSkin.woodStrength,
+                    1.35,
+                    pegMatType
+                )
+            end
         end
     end
 
@@ -830,23 +1307,37 @@ function Renderer3D:renderScene(screenW, screenH, state)
 
     local pulse = 0.5 + 0.5 * math.sin(love.timer.getTime() * 6.0)
 
-    -- 4. Отрисовка нанизанных на столбики фишек (с учетом отмотки ходов maxPly и конусности для Ёлочки!)
+    -- 4. Отрисовка нанизанных на столбики фишек (с учетом отмотки ходов maxPly, вольного режима и особых скинов)
     if state.logic then
-        local function drawSinglePiece(gx, gy, gz, player, isCurrentRewindHead)
+        local function drawSinglePiece(gx, gy, gz, player, isCurrentRewindHead, overrideAlpha)
             local wx, wy, wz = self:gridToWorldXYZ(gx, gy, gz)
-            if not isRewound and state.activeDrop and state.activeDrop.x == gx and state.activeDrop.y == gy and state.activeDrop.z == gz then
+            if not overrideAlpha and not isRewound and state.activeDrop and state.activeDrop.x == gx and state.activeDrop.y == gy and state.activeDrop.z == gz then
                 wy = state.activeDrop.currentY
             end
 
             local baseCol = (player == 1) and pieceSkin.player1Color or pieceSkin.player2Color
+            if overrideAlpha then
+                baseCol = { baseCol[1], baseCol[2], baseCol[3], overrideAlpha }
+            end
             local key = gx .. ":" .. gy .. ":" .. gz
-            local isWinPiece = winSet[key]
-            local matType, pMesh = self:_getPieceMaterialAndMesh(pieceSkin, player)
+            local isWinPiece = (not overrideAlpha) and winSet[key]
+            local matType, pMesh = self:_getPieceMaterialAndMesh(pieceSkin, player, gy)
 
-            -- Для скина «Веточки Ёлки» нижние фишки шире, а верхние уже — получается 3D-ёлочка!
             local taperXZ = 1.0
+            local scaleY = 1.0
             if pieceSkin.taperByHeight then
                 taperXZ = 1.28 - (gy - 1) * 0.19
+            elseif pieceSkin.style == "snowman" then
+                if gy == 1 then
+                    taperXZ, scaleY = 1.02, 0.80
+                elseif gy == 2 then
+                    taperXZ, scaleY = 0.84, 0.68
+                elseif gy == 3 then
+                    taperXZ, scaleY = 0.68, 0.56
+                elseif gy == 4 then
+                    taperXZ, scaleY = 0.90, 0.88
+                    baseCol = { 0.08, 0.08, 0.10, overrideAlpha or 1.0 }
+                end
             end
 
             local scale = 1.0
@@ -856,13 +1347,15 @@ function Renderer3D:renderScene(screenW, screenH, state)
                 emissive = { 0.45 * pulse + 0.15, 0.34 * pulse + 0.10, 0.05 }
             elseif isCurrentRewindHead then
                 emissive = { 0.18 * pulse, 0.18 * pulse, 0.08 * pulse }
+            elseif overrideAlpha then
+                emissive = { 0.12, 0.14, 0.18 }
             end
 
             self:_drawMeshTransform(
                 pMesh,
                 { wx, wy, wz },
                 { scale * taperXZ, 0, 0 },
-                { 0, scale, 0 },
+                { 0, scale * scaleY, 0 },
                 { 0, 0, scale * taperXZ },
                 baseCol,
                 emissive,
@@ -871,6 +1364,35 @@ function Renderer3D:renderScene(screenW, screenH, state)
                 1.8,
                 matType
             )
+
+            -- Детали снеговика: пуговицы (gy=2), глазки и морковка-нос (gy=3)
+            if pieceSkin.style == "snowman" and not overrideAlpha then
+                if gy == 2 then
+                    for _, dy in ipairs({ -0.09, 0.09 }) do
+                        self:_drawMeshTransform(
+                            self.meshSphere,
+                            { wx, wy + dy, wz + 0.38 },
+                            { 0.08, 0, 0 }, { 0, 0.08, 0 }, { 0, 0, 0.08 },
+                            { 0.08, 0.08, 0.10, 1.0 }, { 0, 0, 0 }, 0.3, 0.0, 1.0, 0.0
+                        )
+                    end
+                elseif gy == 3 then
+                    for _, dx in ipairs({ -0.11, 0.11 }) do
+                        self:_drawMeshTransform(
+                            self.meshSphere,
+                            { wx + dx, wy + 0.08, wz + 0.29 },
+                            { 0.06, 0, 0 }, { 0, 0.06, 0 }, { 0, 0, 0.06 },
+                            { 0.05, 0.05, 0.07, 1.0 }, { 0, 0, 0 }, 0.4, 0.0, 1.0, 0.0
+                        )
+                    end
+                    self:_drawMeshTransform(
+                        self.meshPineConeTip,
+                        { wx, wy - 0.02, wz + 0.34 },
+                        { 0.12, 0, 0 }, { 0, 0, 0.24 }, { 0, -0.12, 0 },
+                        { 0.96, 0.44, 0.08, 1.0 }, { 0, 0, 0 }, 0.3, 0.0, 1.0, 0.0
+                    )
+                end
+            end
         end
 
         if isRewound and #state.logic.moveHistory > 0 then
@@ -883,13 +1405,76 @@ function Renderer3D:renderScene(screenW, screenH, state)
         else
             for gx = 1, 4 do
                 for gz = 1, 4 do
-                    local stack = state.logic.pegs[gx][gz]
-                    for gy = 1, #stack do
-                        drawSinglePiece(gx, gy, gz, stack[gy], false)
+                    for gy = 1, 4 do
+                        local p = state.logic.grid[gx][gy][gz]
+                        if p and p ~= 0 then
+                            drawSinglePiece(gx, gy, gz, p, false)
+                        end
                     end
                 end
             end
         end
+
+        -- Полупрозрачный призрак будущей фишки в Вольном режиме
+        if state.logic.ruleMode == "free" and state.hoveredX and state.hoveredZ and state.hoveredY
+           and not state.activeDrop and not isRewound and not state.logic.winner and not state.logic.isDraw then
+            if state.logic:canPlace(state.hoveredX, state.hoveredY, state.hoveredZ) then
+                love.graphics.setDepthMode("lequal", false)
+                love.graphics.setBlendMode("alpha")
+                drawSinglePiece(state.hoveredX, state.hoveredY, state.hoveredZ, state.logic.currentPlayer, false, 0.44)
+                love.graphics.setDepthMode("lequal", true)
+            end
+        end
+    end
+
+    -- 4b. Легендарная 3D-бабочка (открывается при 10 победах со скином legendary_butterfly)
+    local bWins = (state.config.skinWins and state.config.skinWins.legendary_butterfly) or 0
+    if pieceSkin.style == "butterfly" and bWins >= 10 then
+        local t = love.timer.getTime()
+        local bx = math.cos(t * 0.85) * 3.1
+        local bz = math.sin(t * 0.85) * 3.1
+        local by = 2.15 + math.sin(t * 2.2) * 0.45
+        local flap = math.sin(t * 14.0) * 0.65
+        local cf, sf = math.cos(flap), math.sin(flap)
+        -- Тельце бабочки
+        self:_drawMeshTransform(
+            self.meshSphere,
+            { bx, by, bz },
+            { 0.08, 0, 0 }, { 0, 0.08, 0 }, { 0, 0, 0.28 },
+            { 0.12, 0.10, 0.14, 1.0 }, { 0, 0, 0 }, 0.6, 0.0, 1.0, 0.0
+        )
+        -- Левое и правое крыло
+        self:_drawMeshTransform(
+            self.meshButterflyWing,
+            { bx, by, bz },
+            { 0.45 * cf, 0.45 * sf, 0 }, { -0.45 * sf, 0.45 * cf, 0 }, { 0, 0, 0.45 },
+            { 0.98, 0.78, 0.18, 1.0 }, { 0.25, 0.18, 0.04 }, 0.85, 0.0, 1.0, 17.0
+        )
+        self:_drawMeshTransform(
+            self.meshButterflyWing,
+            { bx, by, bz },
+            { -0.45 * cf, 0.45 * sf, 0 }, { 0.45 * sf, 0.45 * cf, 0 }, { 0, 0, 0.45 },
+            { 0.98, 0.78, 0.18, 1.0 }, { 0.25, 0.18, 0.04 }, 0.85, 0.0, 1.0, 17.0
+        )
+    end
+
+    -- 4c. Дымка / плывущие облака для японской крыши и небоскрёбов
+    if boardSkin.hasMist then
+        local t = love.timer.getTime()
+        love.graphics.setDepthMode("lequal", false)
+        love.graphics.setBlendMode("alpha")
+        for i = 1, 6 do
+            local cx = ((t * 0.35 + i * 2.7) % 14.0) - 7.0
+            local cz = -3.8 + (i % 3) * 3.4
+            local cy = -1.65 - (i % 2) * 0.55
+            self:_drawMeshTransform(
+                self.meshRoundBase,
+                { cx, cy, cz },
+                { 3.8, 0, 0 }, { 0, 0.32, 0 }, { 0, 0, 2.4 },
+                { 0.86, 0.90, 0.96, 0.24 }, { 0.12, 0.14, 0.18 }, 0.0, 0.0, 1.0, 0.0
+            )
+        end
+        love.graphics.setDepthMode("lequal", true)
     end
 
     -- 5. Победный луч через 4 собранные фишки
@@ -1002,13 +1587,14 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
         local mat2, mesh2 = self:_getPieceMaterialAndMesh(itemData, 2)
 
         if itemData.taperByHeight then
-            -- Для «Веточек Ёлки» в витрине магазина рисуем собранную 4-ярусную конусную ёлочку!
+            -- Для «Веточек Ёлки» в витрине магазина рисуем собранную 4-ярусную конусную ёлочку с закрытой верхушкой!
             for gy = 1, 4 do
+                local matG, meshG = self:_getPieceMaterialAndMesh(itemData, 1, gy)
                 local taper = (1.28 - (gy - 1) * 0.20) * 1.12
                 local py = -0.60 + (gy - 1) * 0.38
                 local col = (gy % 2 == 1) and itemData.player1Color or itemData.player2Color
                 self:_drawMeshTransform(
-                    mesh1,
+                    meshG,
                     { 0.0, py, 0.0 },
                     { ca * taper, 0, sa * taper },
                     { 0, 1.05, 0 },
@@ -1018,7 +1604,31 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
                     itemData.specular or 0.35,
                     itemData.woodStrength or 0.8,
                     1.8,
-                    mat1
+                    matG
+                )
+            end
+        elseif itemData.style == "snowman" then
+            local tiers = {
+                { py = -0.58, sXZ = 1.02, sY = 0.80, gy = 1 },
+                { py = -0.20, sXZ = 0.84, sY = 0.68, gy = 2 },
+                { py =  0.14, sXZ = 0.68, sY = 0.56, gy = 3 },
+                { py =  0.46, sXZ = 0.90, sY = 0.88, gy = 4 },
+            }
+            for _, t in ipairs(tiers) do
+                local matG, meshG = self:_getPieceMaterialAndMesh(itemData, 1, t.gy)
+                local col = (t.gy == 4) and { 0.08, 0.08, 0.10, 1.0 } or itemData.player1Color
+                self:_drawMeshTransform(
+                    meshG,
+                    { 0.0, t.py, 0.0 },
+                    { ca * t.sXZ, 0, sa * t.sXZ },
+                    { 0, t.sY, 0 },
+                    { -sa * t.sXZ, 0, ca * t.sXZ },
+                    col,
+                    { 0, 0, 0 },
+                    itemData.specular or 0.35,
+                    0.0,
+                    1.8,
+                    matG
                 )
             end
         else
@@ -1068,23 +1678,29 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
             0.0
         )
     elseif previewType == "board_skin" then
-        local mesh = (itemData.isRound ~= false) and self.meshRoundBase or self.meshBox
+        local bStyle = itemData.style or "wood"
+        local mesh = (bStyle == "japanese_roof") and self.meshJapaneseRoof
+            or ((itemData.isRound ~= false) and self.meshRoundBase or self.meshBox)
         local span = 1.45
-        local isForest = (itemData.style == "forest")
-        local isMetal  = (itemData.style == "metal")
-        local isCake   = (itemData.style == "cake")
+        local isForest = (bStyle == "forest")
+        local isMetal  = (bStyle == "metal")
+        local isCake   = (bStyle == "cake")
+        local isSnowy  = (bStyle == "snowy")
+        local isJap    = (bStyle == "japanese_roof")
+        local isCity   = (bStyle == "skyscraper" or bStyle == "manhattan")
+        local matId    = isForest and 5.0 or (isMetal and 7.0 or (isCake and 8.0 or (isSnowy and 15.0 or (isJap and 13.0 or (isCity and 11.0 or 0.0)))))
         self:_drawMeshTransform(
             mesh,
             { 0.0, -0.15, 0.0 },
             { ca * span, 0, sa * span },
-            { 0, 0.26, 0 },
+            { 0, isJap and 0.55 or (isCity and 0.65 or 0.26), 0 },
             { -sa * span, 0, ca * span },
             itemData.baseColor,
             { 0, 0, 0 },
             isMetal and 0.82 or 0.25,
             itemData.woodStrength or 0.9,
             1.2,
-            isForest and 5.0 or (isMetal and 7.0 or (isCake and 8.0 or 0.0))
+            matId
         )
         -- Пара мини-столбиков сверху
         for _, off in ipairs({ {-0.3, -0.3}, {0.3, -0.3}, {-0.3, 0.3}, {0.3, 0.3} }) do

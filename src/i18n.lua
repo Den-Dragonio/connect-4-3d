@@ -97,9 +97,9 @@ local I18N = {
             -- HUD & In-Game
             turn_white = "White's Turn",
             turn_black = "Black's Turn",
-            moves_header = "Moves (↑↓←→)",
+            moves_header = "Moves",
             no_moves_yet = "No moves yet",
-            rewound_banner = "Viewing move %d/%d — Press ↑ for latest",
+            rewound_banner = "",
             win_white = "White Wins!",
             win_black = "Black Wins!",
             win_draw = "Draw!",
@@ -189,7 +189,82 @@ local I18N = {
             ui_theme_gray = "Minimalist Gray (Default)",
             ui_theme_wood = "Wooden Vibe",
             ui_theme_obsidian = "Carbon Dark",
-            ui_theme_silver = "Clean Silver (Stub)"
+            ui_theme_silver = "Clean Light Minimalism",
+            ui_theme_white = "Pure White",
+            ui_theme_black = "OLED Black",
+            ui_theme_new_year = "New Year (Snow & Frost)",
+            ui_theme_halloween = "Halloween",
+
+            skin_butterfly = "Legendary Butterfly (Upgradeable)",
+            skin_gold_silver = "Gold & Silver Rings",
+            skin_thin_rings = "Minimalist Thin Rings",
+            skin_beads = "Beads",
+            skin_pumpkin = "Halloween Pumpkins",
+            skin_snowman = "Snowman (4-Tier)",
+            skin_upgrade_hint = "Upgradeable: %d/10 wins for Butterfly FX",
+
+            board_snowy = "Snowy Winter",
+            board_japanese = "Japanese Traditional Roof",
+            board_skyscraper = "Skyscraper Tower",
+            board_manhattan = "Manhattan Evening",
+
+            rule_mode_label = "Rule Mode:",
+            rule_standard = "Standard (Gravity)",
+            rule_free = "Free (Any Height)",
+
+            elo_std_bullet = "Standard Bullet (1m)",
+            elo_std_blitz = "Standard Blitz (5m)",
+            elo_free_bullet = "Free Bullet (1m)",
+            elo_free_blitz = "Free Blitz (5m)",
+
+            tournament_btn = "Tournament",
+            tournament_title = "Tournaments",
+            tourn_create = "Create Tournament",
+            tourn_join = "Join by Code",
+            tourn_code = "Room Code:",
+            tourn_system = "Format:",
+            tourn_swiss = "Swiss (1 / 0.5 / 0)",
+            tourn_bracket = "Knockout Bracket",
+            tourn_players = "Players:",
+            tourn_bot_mode = "With Bots (No Achievements)",
+            tourn_leaderboard = "Leaderboard",
+            tourn_start = "Start Tournament",
+            tourn_play_match = "Play Next Match",
+
+            ach_bot_easy = "Easy Bot Slayer",
+            ach_bot_medium = "Medium Bot Slayer",
+            ach_bot_hard = "Hard Bot Master",
+            ach_wins_10 = "10 Victories",
+            ach_wins_100 = "100 Victories",
+            ach_wins_1000 = "1000 Victories",
+            ach_first_friend = "First Friend",
+            ach_pioneer_1000 = "First 1000 Pioneer",
+            ach_tournament_win = "Tournament Champion",
+
+            ach_desc_first_win = "Win your very first game (registered account).",
+            ach_desc_3d_diag = "Win with a 3D space diagonal across all 4 levels.",
+            ach_desc_veteran = "Complete 10 matches in any mode.",
+            ach_desc_bot_easy = "Defeat the Easy Bot.",
+            ach_desc_bot_medium = "Defeat the Medium Bot.",
+            ach_desc_bot_hard = "Defeat the Hard Bot.",
+            ach_desc_wins_10 = "Reach 10 total victories.",
+            ach_desc_wins_100 = "Reach 100 total victories.",
+            ach_desc_wins_1000 = "Reach 1000 total victories.",
+            ach_desc_first_friend = "Add your first friend.",
+            ach_desc_pioneer_1000 = "Be among the first 1000 registered players.",
+            ach_desc_tournament_win = "Win a real-player tournament.",
+
+            friends_title = "Friends",
+            friend_search = "Search username...",
+            friend_add = "Add",
+            friend_requests = "Requests",
+            friend_accept = "Accept",
+            friend_decline = "Decline",
+            friend_pending = "Pending",
+            friend_challenge = "Play",
+            friend_view = "Profile",
+            friend_remove = "Remove",
+            friend_block = "Block"
         },
 
         ru = {
@@ -281,9 +356,9 @@ local I18N = {
 
             turn_white = "Ход Белых",
             turn_black = "Ход Черных",
-            moves_header = "Запись ходов (↑↓←→)",
+            moves_header = "Список ходов",
             no_moves_yet = "Ходов пока нет",
-            rewound_banner = "Ход %d из %d — Нажмите ↑ к крайнему ходу",
+            rewound_banner = "",
             win_white = "Победа Белых!",
             win_black = "Победа Черных!",
             win_draw = "Ничья!",
@@ -316,19 +391,27 @@ local I18N = {
 
             rules_title = "Правила игры и управление",
             rules_body =
-                "ПРАВИЛА ИГРЫ:\n" ..
-                "• Поле состоит из 16 вертикальных столбиков 4x4 (ряды a-d, линии 1-4), на каждый помещается до 4 фишек-бубликов в высоту (уровни 1-4).\n" ..
-                "• Белые начинают первыми. Игроки по очереди нанизывают по одной фишке на любой столбик.\n" ..
-                "• Побеждает тот, кто первым соединит 4 свои фишки подряд: по вертикали, горизонтали, диагонали на одном уровне или 3D-диагонали в высоту.\n" ..
-                "• Ходы записываются в шахматном формате: <ряд><линия>.<высота> (например, a1.1 — столбик a1 на высоте 1).\n" ..
-                "• В режимах Офлайн, LAN и Онлайн у каждого игрока есть таймер на 5:00 минут.\n\n" ..
-                "УПРАВЛЕНИЕ:\n" ..
-                "• ЛКМ по столбику — Надеть фишку на подсвеченный столбик\n" ..
-                "• WASD (ЦФЫВ) / Зажать мышь — Вращение камеры\n" ..
-                "• Стрелочки (← / → / ↑ / ↓) — Отмотка ходов (← на 1 назад, → на 1 вперед, ↑ в самый конец, ↓ в самое начало)\n" ..
-                "• Z / X (Я / Ч) или Колесико — Зум камеры (Колесико над записью ходов листает список)\n" ..
-                "• F (А) после победы — Скрыть/показать окно результата, чтобы осмотреть финальную позицию\n" ..
-                "• R (К) — Перезапуск партии   |   Esc — Выход в меню",
+                "🎯 ЦЕЛЬ ИГРЫ (4×4×4):\n" ..
+                "• Поле состоит из 16 вертикальных штырей 4×4 (ряды a–d, линии 1–4), на каждый помещается до 4 фишек в высоту (уровни 1–4).\n" ..
+                "• ⚪ Белые всегда ходят первыми, ⚫ Чёрные — вторыми.\n" ..
+                "• Побеждает тот, кто первым соберёт 4 свои фишки в прямую линию (76 возможных линий):\n" ..
+                "   1️⃣ По вертикали на одном штыре\n" ..
+                "   2️⃣ По горизонтали (вдоль ряда или линии)\n" ..
+                "   3️⃣ По плоской диагонали на одном уровне или вертикальной плоскости\n" ..
+                "   4️⃣ По главной 3D-диагонали через все 4 уровня высоты!\n\n" ..
+                "⚡ РЕЖИМЫ ПРАВИЛ:\n" ..
+                "• 🪨 Классика (Гравитация): фишка падает на самый нижний свободный уровень штыря.\n" ..
+                "• 🕊️ Вольный режим: фишку можно ставить на ЛЮБОЙ свободный уровень (1–4) прямо в воздухе! При наведении показывается полупрозрачный призрак.\n\n" ..
+                "⏱️ КОНТРОЛЬ ВРЕМЕНИ И ELO:\n" ..
+                "• 🔫 Пуля (1:00) и ⚡ Блиц (5:00) имеют отдельные рейтинги ELO для Классики и Вольного режима (итого 4 рейтинга).\n" ..
+                "• 🏆 Турниры: Швейцарская система (1 / 0.5 / 0 очка) или Турнирная сетка на вылет по коду комнаты.\n\n" ..
+                "🎮 УПРАВЛЕНИЕ:\n" ..
+                "• 🖱️ ЛКМ по штырю — Поставить фишку\n" ..
+                "• 🔄 Зажать мышь / WASD (ЦФЫВ) — Вращать 3D-камеру\n" ..
+                "• ⏪ Стрелки (← / → / ↑ / ↓) — Листать историю ходов\n" ..
+                "• 🔍 Z / X или Колесико — Приближение камеры\n" ..
+                "• 👁️ F (А) после партии — Скрыть окно результата и осмотреть доску\n" ..
+                "• 🔁 R (К) — Рестарт   |   Esc — Меню",
 
             tab_pieces = "ФИШКИ",
             tab_board = "ПОЛЕ",
@@ -369,7 +452,82 @@ local I18N = {
             ui_theme_gray = "Минимализм Серый (Дефолт)",
             ui_theme_wood = "Деревянный вайб",
             ui_theme_obsidian = "Темный карбон",
-            ui_theme_silver = "Светлый минимализм (Скоро)"
+            ui_theme_silver = "Светлый минимализм",
+            ui_theme_white = "Белая тема",
+            ui_theme_black = "Чёрная OLED тема",
+            ui_theme_new_year = "Новогодняя (Снег и Иней)",
+            ui_theme_halloween = "Хэллоуин",
+
+            skin_butterfly = "Легендарная Бабочка (Улучшаемый)",
+            skin_gold_silver = "Золото и Серебро (Кольца)",
+            skin_thin_rings = "Тонкие кольца минимализма",
+            skin_beads = "Бусины",
+            skin_pumpkin = "Тыквы Хэллоуина",
+            skin_snowman = "Снеговик (4 яруса)",
+            skin_upgrade_hint = "Улучшаемый: %d/10 побед для спецэффекта Бабочки",
+
+            board_snowy = "Снежное поле",
+            board_japanese = "Японская традиционная крыша",
+            board_skyscraper = "Небоскрёб",
+            board_manhattan = "Вечерний Манхэттен",
+
+            rule_mode_label = "Режим правил:",
+            rule_standard = "Классика (Гравитация)",
+            rule_free = "Вольный (Любая высота)",
+
+            elo_std_bullet = "Классика Пуля (1м)",
+            elo_std_blitz = "Классика Блиц (5м)",
+            elo_free_bullet = "Вольный Пуля (1м)",
+            elo_free_blitz = "Вольный Блиц (5м)",
+
+            tournament_btn = "Турнир",
+            tournament_title = "Турниры",
+            tourn_create = "Создать турнир",
+            tourn_join = "Присоединиться по коду",
+            tourn_code = "Код комнаты:",
+            tourn_system = "Формат:",
+            tourn_swiss = "Швейцарка (1 / 0.5 / 0)",
+            tourn_bracket = "Турнирная сетка",
+            tourn_players = "Участники:",
+            tourn_bot_mode = "С ботами (без ачивок)",
+            tourn_leaderboard = "Таблица лидеров",
+            tourn_start = "Начать турнир",
+            tourn_play_match = "Играть матч",
+
+            ach_bot_easy = "Победить Лёгкого бота",
+            ach_bot_medium = "Победить Среднего бота",
+            ach_bot_hard = "Победить Тяжёлого бота",
+            ach_wins_10 = "10 побед",
+            ach_wins_100 = "100 побед",
+            ach_wins_1000 = "1000 побед",
+            ach_first_friend = "Первый друг",
+            ach_pioneer_1000 = "Первая 1000 игроков",
+            ach_tournament_win = "Чемпион турнира",
+
+            ach_desc_first_win = "Одержите первую победу (в аккаунте).",
+            ach_desc_3d_diag = "Соберите 3D-диагональ через все 4 уровня высоты.",
+            ach_desc_veteran = "Завершите 10 партий в любом режиме.",
+            ach_desc_bot_easy = "Обыграйте Лёгкого бота.",
+            ach_desc_bot_medium = "Обыграйте Среднего бота.",
+            ach_desc_bot_hard = "Обыграйте Тяжёлого бота.",
+            ach_desc_wins_10 = "Наберите 10 побед в аккаунте.",
+            ach_desc_wins_100 = "Наберите 100 побед в аккаунте.",
+            ach_desc_wins_1000 = "Наберите 1000 побед в аккаунте.",
+            ach_desc_first_friend = "Добавьте первого друга.",
+            ach_desc_pioneer_1000 = "Зарегистрируйтесь среди первых 1000 игроков.",
+            ach_desc_tournament_win = "Выиграйте турнир с реальными игроками.",
+
+            friends_title = "Друзья",
+            friend_search = "Поиск по нику...",
+            friend_add = "Добавить",
+            friend_requests = "Заявки",
+            friend_accept = "Принять",
+            friend_decline = "Отклонить",
+            friend_pending = "Ожидание",
+            friend_challenge = "Играть",
+            friend_view = "Профиль",
+            friend_remove = "Удалить",
+            friend_block = "Чёрный список"
         },
 
         fr = {

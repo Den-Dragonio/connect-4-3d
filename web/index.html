@@ -1,219 +1,233 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ru">
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
-  <meta name="theme-color" content="#23262b" />
-  <meta name="mobile-web-app-capable" content="yes" />
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-  <meta name="apple-mobile-web-app-title" content="Connect 4 3D" />
-  <link rel="manifest" href="./manifest.json" />
-  <link rel="apple-touch-icon" href="./icon-192.png" />
-  <title>Connect 4 — 3D | Играть Онлайн, на Телефоне и ПК</title>
-  <style>
-    :root {
-      --bg: #23262b;
-      --panel: #2e3138;
-      --border: #5c616d;
-      --text: #f2f5fa;
-      --sub: #adb5c2;
-      --accent: #42856b;
-      --primary: #576173;
-    }
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      min-height: 100vh;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      padding: 32px 18px;
-    }
-    .container {
-      max-width: 980px;
-      width: 100%;
-    }
-    header {
-      text-align: center;
-      margin-bottom: 30px;
-    }
-    .app-logo {
-      width: 72px;
-      height: 72px;
-      border-radius: 16px;
-      margin-bottom: 12px;
-      box-shadow: 0 6px 20px rgba(0,0,0,0.35);
-    }
-    h1 {
-      font-size: 2.35rem;
-      letter-spacing: 1px;
-      margin-bottom: 8px;
-    }
-    p.lead {
-      color: var(--sub);
-      font-size: 1.05rem;
-      line-height: 1.5;
-    }
-    .card {
-      background: var(--panel);
-      border: 1.5px solid var(--border);
-      border-radius: 16px;
-      padding: 24px;
-      margin-bottom: 24px;
-    }
-    .card h2 {
-      font-size: 1.3rem;
-      margin-bottom: 10px;
-    }
-    .downloads {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(215px, 1fr));
-      gap: 14px;
-      margin-top: 16px;
-    }
-    .btn {
-      display: inline-flex;
-      flex-direction: column;
-      align-items: center;
-      justify-content: center;
-      padding: 15px 16px;
-      border-radius: 12px;
-      border: 1.5px solid var(--border);
-      background: var(--primary);
-      color: var(--text);
-      text-decoration: none;
-      font-weight: 600;
-      transition: transform 0.12s ease, background 0.15s ease;
-      text-align: center;
-      cursor: pointer;
-    }
-    .btn:hover {
-      background: var(--accent);
-      transform: translateY(-2px);
-    }
-    .btn span.os {
-      font-size: 1.05rem;
-      margin-bottom: 4px;
-    }
-    .btn span.ext {
-      font-size: 0.8rem;
-      color: var(--sub);
-      font-weight: 400;
-    }
-    .play-web-btn {
-      width: 100%;
-      background: var(--accent);
-      padding: 18px;
-      font-size: 1.18rem;
-      margin-top: 10px;
-    }
-    .tip-box {
-      margin-top: 14px;
-      padding: 12px 16px;
-      border-radius: 10px;
-      background: rgba(35, 38, 43, 0.7);
-      border: 1px solid var(--border);
-      font-size: 0.9rem;
-      color: var(--sub);
-      line-height: 1.45;
-    }
-    .tip-box strong {
-      color: var(--text);
-    }
-  </style>
-</head>
-<body>
-  <div class="container">
-    <header>
-      <img class="app-logo" src="./icon-192.png" alt="Connect 4 3D" />
-      <h1>CONNECT 4 — 3D</h1>
-      <p class="lead">Объёмная тактическая игра 4×4×4 • Онлайн ELO, Боты, LAN и Кастомизация для ПК, Android и iPhone</p>
-    </header>
-
-    <div class="card">
-      <h2>Играть Онлайн в Браузере (ПК, iPhone и Android)</h2>
-      <p class="lead" style="margin-bottom: 12px;">
-        Поддерживает сенсорное вращение 3D-поля одним пальцем, зум двумя пальцами (Pinch-to-Zoom) и выбор столбика двойным тапом на телефонах:
-      </p>
-      <a class="btn play-web-btn" href="./play/index.html">
-        ▶ ИГРАТЬ ОНЛАЙН (ПК &amp; МОБИЛЬНЫЙ ВЕБ)
-      </a>
-    </div>
-
-    <div class="card">
-      <h2>Скачать на Телефон (Android &amp; iPhone / iOS)</h2>
-      <p class="lead">
-        Установите игру как мобильное приложение на Android или iPhone:
-      </p>
-      <div class="downloads">
-        <a class="btn" href="./downloads/Connect4_3D_Android.apk">
-          <span class="os">Android (.APK)</span>
-          <span class="ext">Connect4_3D_Android.apk (Android 5–15+)</span>
-        </a>
-        <button class="btn" type="button" onclick="installPWA()">
-          <span class="os">iPhone &amp; Android (PWA App)</span>
-          <span class="ext">Установить приложение на экран «Домой»</span>
-        </button>
-        <a class="btn" href="./downloads/Connect4_3D.love">
-          <span class="os">iPhone (LÖVE for iOS)</span>
-          <span class="ext">Connect4_3D.love (Для App Store LÖVE)</span>
-        </a>
-        <a class="btn" href="./downloads/Connect4_3D_iOS_Xcode.zip">
-          <span class="os">iOS Xcode Проект</span>
-          <span class="ext">Connect4_3D_iOS_Xcode.zip (Сборка .ipa)</span>
-        </a>
-      </div>
-      <div class="tip-box" id="ios-hint">
-        <strong>Как установить на iPhone (iOS) за 5 секунд без компьютера:</strong><br/>
-        1. Откройте эту страницу в <strong>Safari</strong> на iPhone → нажмите кнопку <strong>«Поделиться» (Share)</strong> внизу экрана → выберите <strong>«На экран "Домой"» (Add to Home Screen)</strong>. Игра появится на рабочем столе iPhone как полноэкранное приложение!<br/>
-        2. Либо скачайте бесплатное приложение <strong>LÖVE for iOS</strong> из App Store и откройте в нём файл <code>Connect4_3D.love</code>.
-      </div>
-    </div>
-
-    <div class="card">
-      <h2>Скачать на Компьютер (Windows 7/8/10/11, macOS, Linux)</h2>
-      <p class="lead">
-        Нативные версии (60 FPS OpenGL) с поддержкой игры по локальной сети (LAN) и перетаскиванием аватарок профиля:
-      </p>
-      <div class="downloads">
-        <a class="btn" href="./downloads/Connect4_3D_Setup.exe">
-          <span class="os">Windows Инсталлятор</span>
-          <span class="ext">Win 11 / 10 / 8.1 / 8 / 7 (32 &amp; 64-bit .exe)</span>
-        </a>
-        <a class="btn" href="./downloads/Connect4_3D_Mac.dmg">
-          <span class="os">macOS Инсталлятор</span>
-          <span class="ext">Connect4_3D_Mac.dmg (Apple M1-M4 &amp; Intel)</span>
-        </a>
-        <a class="btn" href="./downloads/Connect4_3D_Windows_Portable.zip">
-          <span class="os">Windows Portable (.zip)</span>
-          <span class="ext">Без установки (Win 7 / 8 / 10 / 11)</span>
-        </a>
-        <a class="btn" href="./downloads/Connect4_3D.love">
-          <span class="os">Linux / Universal (.love)</span>
-          <span class="ext">Connect4_3D.love (LÖVE 11.5)</span>
-        </a>
-      </div>
-    </div>
-  </div>
-
-  <script>
-    let deferredPrompt = null;
-    if ('serviceWorker' in navigator) {
-      navigator.serviceWorker.register('./sw.js').catch(function(){});
-    }
-    window.addEventListener('beforeinstallprompt', (e) => {
-      e.preventDefault();
-      deferredPrompt = e;
-    });
-    function installPWA() {
-      if (deferredPrompt) {
-        deferredPrompt.prompt();
-      } else {
-        alert('На iPhone (Safari): нажмите кнопку «Поделиться» внизу браузера и выберите «На экран "Домой"».\n\nНа Android (Chrome): нажмите меню (⋮) и выберите «Установить приложение» / «Добавить на главный экран».');
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, minimum-scale=1, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#23262b">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Connect 4 3D">
+    <link rel="manifest" href="./manifest.json">
+    <link rel="apple-touch-icon" href="./icon-192.png">
+    <title>Connect 4 — 3D</title>
+    <link rel="stylesheet" type="text/css" href="./theme/love.css">
+    <style>
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+        -webkit-tap-highlight-color: transparent;
+        user-select: none;
+        -webkit-user-select: none;
       }
-    }
-  </script>
-</body>
+      html, body {
+        background-color: #23262b !important;
+        color: #f2f5fa !important;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        margin: 0;
+        padding: 0;
+        width: 100vw;
+        height: 100vh;
+        height: 100dvh;
+        overflow: hidden;
+        touch-action: none;
+        overscroll-behavior: none;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      #stage {
+        position: relative;
+        width: 100vw;
+        height: 100vh;
+        height: 100dvh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        background-color: #23262b;
+      }
+      #canvas, #loadingCanvas {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        max-width: 100%;
+        max-height: 100%;
+        object-fit: contain;
+        display: block;
+        touch-action: none;
+        border: none;
+        outline: none;
+      }
+      #canvas {
+        visibility: hidden;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="stage">
+      <canvas id="loadingCanvas" oncontextmenu="event.preventDefault()" width="1280" height="800"></canvas>
+      <canvas id="canvas" oncontextmenu="event.preventDefault()"></canvas>
+    </div>
+
+    <script type="text/javascript">
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('./sw.js').catch(function(){});
+      }
+
+      function goFullScreen() {
+        var el = document.documentElement;
+        if (el.requestFullscreen) el.requestFullscreen().catch(function(){});
+        else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen().catch(function(){});
+      }
+
+      // Universal Mobile Touch & Pinch-to-Zoom Bridge for iOS Safari & Android Chrome
+      (function setupMobileTouchBridge() {
+        var canvas = document.getElementById('canvas');
+        var lastX = 0, lastY = 0;
+        var lastPinch = null;
+        var isTouching = false;
+
+        function dispatchMouse(type, clientX, clientY, movX, movY) {
+          var ev = new MouseEvent(type, {
+            bubbles: true,
+            cancelable: true,
+            view: window,
+            button: 0,
+            buttons: (type === 'mouseup') ? 0 : 1,
+            clientX: clientX,
+            clientY: clientY,
+            movementX: movX || 0,
+            movementY: movY || 0
+          });
+          canvas.dispatchEvent(ev);
+        }
+
+        canvas.addEventListener('touchstart', function(e) {
+          e.preventDefault();
+          window.focus();
+          if (e.touches.length === 1) {
+            isTouching = true;
+            lastPinch = null;
+            lastX = e.touches[0].clientX;
+            lastY = e.touches[0].clientY;
+            dispatchMouse('mousemove', lastX, lastY, 0, 0);
+            dispatchMouse('mousedown', lastX, lastY, 0, 0);
+          } else if (e.touches.length >= 2) {
+            var dx = e.touches[0].clientX - e.touches[1].clientX;
+            var dy = e.touches[0].clientY - e.touches[1].clientY;
+            lastPinch = Math.hypot(dx, dy);
+          }
+        }, { passive: false });
+
+        canvas.addEventListener('touchmove', function(e) {
+          e.preventDefault();
+          if (e.touches.length >= 2) {
+            var dx = e.touches[0].clientX - e.touches[1].clientX;
+            var dy = e.touches[0].clientY - e.touches[1].clientY;
+            var dist = Math.hypot(dx, dy);
+            if (lastPinch !== null) {
+              var delta = lastPinch - dist;
+              if (Math.abs(delta) > 2) {
+                var wheelEv = new WheelEvent('wheel', {
+                  bubbles: true,
+                  cancelable: true,
+                  deltaY: delta * 1.5
+                });
+                canvas.dispatchEvent(wheelEv);
+              }
+            }
+            lastPinch = dist;
+          } else if (e.touches.length === 1 && isTouching) {
+            var cx = e.touches[0].clientX;
+            var cy = e.touches[0].clientY;
+            var mx = cx - lastX;
+            var my = cy - lastY;
+            lastX = cx;
+            lastY = cy;
+            dispatchMouse('mousemove', cx, cy, mx, my);
+          }
+        }, { passive: false });
+
+        canvas.addEventListener('touchend', function(e) {
+          e.preventDefault();
+          if (e.touches.length < 2) {
+            lastPinch = null;
+          }
+          if (e.touches.length === 0 && isTouching) {
+            isTouching = false;
+            dispatchMouse('mouseup', lastX, lastY, 0, 0);
+          }
+        }, { passive: false });
+      })();
+
+      var loadingContext = document.getElementById('loadingCanvas').getContext('2d');
+      function drawLoadingText(text) {
+        var canvas = loadingContext.canvas;
+        loadingContext.fillStyle = "rgb(35, 38, 43)";
+        loadingContext.fillRect(0, 0, canvas.width, canvas.height);
+
+        loadingContext.font = 'bold 32px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        loadingContext.textAlign = 'center';
+        loadingContext.fillStyle = "rgb(242, 245, 250)";
+        loadingContext.fillText(text, canvas.width / 2, canvas.height / 2 + 10);
+
+        loadingContext.font = '600 22px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif';
+        loadingContext.fillStyle = "rgb(173, 181, 194)";
+        loadingContext.fillText("CONNECT 4 — 3D", canvas.width / 2, canvas.height / 2 - 45);
+      }
+
+      window.onload = function () { window.focus(); };
+      window.onclick = function () { window.focus(); };
+
+      window.addEventListener("keydown", function(e) {
+        if([32, 37, 38, 39, 40].indexOf(e.keyCode) > -1) {
+          e.preventDefault();
+        }
+      }, false);
+
+      var Module = {
+        arguments: ["./game.love"],
+        INITIAL_MEMORY: 67108864,
+        printErr: console.error.bind(console),
+        canvas: (function() {
+          var canvas = document.getElementById('canvas');
+          canvas.addEventListener("webglcontextlost", function(e) { alert('WebGL context lost. Reload the page.'); e.preventDefault(); }, false);
+          return canvas;
+        })(),
+        setStatus: function(text) {
+          if (text) {
+            drawLoadingText(text);
+          } else if (Module.remainingDependencies === 0) {
+            document.getElementById('loadingCanvas').style.display = 'none';
+            document.getElementById('canvas').style.visibility = 'visible';
+          }
+        },
+        totalDependencies: 0,
+        remainingDependencies: 0,
+        monitorRunDependencies: function(left) {
+          this.remainingDependencies = left;
+          this.totalDependencies = Math.max(this.totalDependencies, left);
+          Module.setStatus(left ? 'Загрузка 3D-движка... (' + (this.totalDependencies-left) + '/' + this.totalDependencies + ')' : 'Готово!');
+        }
+      };
+      Module.setStatus('Загрузка игры...');
+      window.onerror = function(event) {
+        Module.setStatus('Ошибка WebGL — перезагрузите страницу');
+        Module.setStatus = function(text) {
+          if (text) Module.printErr('[post-exception status] ' + text);
+        };
+      };
+
+      var applicationLoad = function(e) {
+        Love(Module);
+      }
+    </script>
+    <script type="text/javascript" src="./game.js"></script>
+    <script async type="text/javascript" src="./love.js" onload="applicationLoad(this)"></script>
+  </body>
 </html>

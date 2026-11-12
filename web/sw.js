@@ -1,15 +1,15 @@
-const CACHE_NAME = 'connect4-3d-v2';
+const CACHE_NAME = 'connect4-3d-v3';
 const ASSETS = [
   './',
   './index.html',
   './manifest.json',
   './icon-192.png',
   './icon-512.png',
-  './play/index.html',
-  './play/game.js',
-  './play/love.js',
-  './play/love.wasm',
-  './play/game.data'
+  './game.js',
+  './love.js',
+  './love.wasm',
+  './game.data',
+  './theme/love.css'
 ];
 
 self.addEventListener('install', (event) => {
@@ -32,4 +32,3 @@ self.addEventListener('fetch', (event) => {
     fetch(event.request).catch(() => caches.match(event.request))
   );
 });
-

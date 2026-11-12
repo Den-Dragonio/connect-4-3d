@@ -6,14 +6,12 @@ cd "$PROJECT_DIR"
 
 BUILD_DIR="$PROJECT_DIR/dist"
 CACHE_DIR="$PROJECT_DIR/.build_cache"
-WEB_DL_DIR="$PROJECT_DIR/web/downloads"
 
-mkdir -p "$BUILD_DIR" "$CACHE_DIR" "$WEB_DL_DIR"
+mkdir -p "$BUILD_DIR" "$CACHE_DIR"
 
 echo "=== [1/6] Packaging Connect4_3D.love archive ==="
 rm -f "$BUILD_DIR/Connect4_3D.love"
 zip -9 -r "$BUILD_DIR/Connect4_3D.love" main.lua conf.lua src assets -x "*.DS_Store"
-cp "$BUILD_DIR/Connect4_3D.love" "$WEB_DL_DIR/Connect4_3D.love"
 echo "Created: $BUILD_DIR/Connect4_3D.love"
 
 echo "=== [2/6] Building macOS Universal .app & .dmg Installer (Intel + Apple Silicon) ==="
@@ -45,7 +43,6 @@ if [ -n "$LOVE_APP" ] && [ -d "$LOVE_APP" ]; then
 
         rm -f "$BUILD_DIR/Connect4_3D_Mac.dmg"
         hdiutil create -volname "Connect 4 3D" -srcfolder "$DMG_STAGING" -ov -format UDZO "$BUILD_DIR/Connect4_3D_Mac.dmg"
-        cp "$BUILD_DIR/Connect4_3D_Mac.dmg" "$WEB_DL_DIR/Connect4_3D_Mac.dmg"
         echo "Created macOS Universal Installer: $BUILD_DIR/Connect4_3D_Mac.dmg"
     fi
 fi
@@ -70,7 +67,6 @@ rm -f "$WIN_UNIV_DIR/love.exe" "$WIN_UNIV_DIR/lovec.exe" "$WIN_UNIV_DIR/changes.
 
 rm -f "$BUILD_DIR/Connect4_3D_Windows_Portable.zip"
 (cd "$WIN_UNIV_DIR" && zip -9 -q -r "$BUILD_DIR/Connect4_3D_Windows_Portable.zip" .)
-cp "$BUILD_DIR/Connect4_3D_Windows_Portable.zip" "$WEB_DL_DIR/Connect4_3D_Windows_Portable.zip"
 
 WIN64_DIR="$CACHE_DIR/win64_native"
 rm -rf "$WIN64_DIR" "$CACHE_DIR/love-11.5-win64"
@@ -81,11 +77,9 @@ rm -f "$WIN64_DIR/love.exe" "$WIN64_DIR/lovec.exe" "$WIN64_DIR/changes.txt" "$WI
 
 rm -f "$BUILD_DIR/Connect4_3D_Win64_Portable.zip"
 (cd "$WIN64_DIR" && zip -9 -q -r "$BUILD_DIR/Connect4_3D_Win64_Portable.zip" .)
-cp "$BUILD_DIR/Connect4_3D_Win64_Portable.zip" "$WEB_DL_DIR/Connect4_3D_Win64_Portable.zip"
 
 if command -v makensis >/dev/null 2>&1; then
     makensis "$PROJECT_DIR/installer.nsi"
-    cp "$BUILD_DIR/Connect4_3D_Setup.exe" "$WEB_DL_DIR/Connect4_3D_Setup.exe"
     echo "Created Windows Setup Installer: $BUILD_DIR/Connect4_3D_Setup.exe"
 fi
 
@@ -112,7 +106,6 @@ if command -v java >/dev/null 2>&1; then
     SIGNED_APK="$(find "$APK_WORK_DIR/signed" -name "*.apk" | head -n 1)"
     if [ -n "$SIGNED_APK" ] && [ -f "$SIGNED_APK" ]; then
         cp "$SIGNED_APK" "$BUILD_DIR/Connect4_3D_Android.apk"
-        cp "$SIGNED_APK" "$WEB_DL_DIR/Connect4_3D_Android.apk"
         echo "Created Signed Android APK: $BUILD_DIR/Connect4_3D_Android.apk"
     fi
 fi
@@ -132,24 +125,37 @@ if [ -f "$IOS_SRC_ZIP" ]; then
     cp "$BUILD_DIR/Connect4_3D.love" "$IOS_ROOT/Connect4_3D.love"
     rm -f "$BUILD_DIR/Connect4_3D_iOS_Xcode.zip"
     (cd "$IOS_WORK_DIR" && zip -9 -q -r "$BUILD_DIR/Connect4_3D_iOS_Xcode.zip" "love-11.5-ios-source")
-    cp "$BUILD_DIR/Connect4_3D_iOS_Xcode.zip" "$WEB_DL_DIR/Connect4_3D_iOS_Xcode.zip"
     echo "Created iOS Xcode Project Bundle: $BUILD_DIR/Connect4_3D_iOS_Xcode.zip"
 fi
 
 echo "=== [6/6] Building Online & Mobile Web Version (WebAssembly / PWA) ==="
 if command -v npx >/dev/null 2>&1; then
-    CUSTOM_PLAY_HTML=""
-    if [ -f "$PROJECT_DIR/web/play/index.html" ]; then
-        CUSTOM_PLAY_HTML="$(cat "$PROJECT_DIR/web/play/index.html")"
-    fi
-    rm -rf "$PROJECT_DIR/web/play"
-    npx -y love.js "$BUILD_DIR/Connect4_3D.love" "$PROJECT_DIR/web/play" -t "Connect 4 — 3D" -c
-    if [ -n "$CUSTOM_PLAY_HTML" ]; then
-        printf "%s\n" "$CUSTOM_PLAY_HTML" > "$PROJECT_DIR/web/play/index.html"
-    elif [ -f "$PROJECT_DIR/web/play/index.html" ]; then
-        sed -i '' 's/INITIAL_MEMORY: 16777216/INITIAL_MEMORY: 67108864/g' "$PROJECT_DIR/web/play/index.html" || true
-    fi
-    echo "Created WebAssembly & Mobile Web build in: $PROJECT_DIR/web/play"
+    WEB_STAGE="$CACHE_DIR/web_lovejs"
+    rm -rf "$WEB_STAGE"
+    mkdir -p "$WEB_STAGE"
+    npx -y love.js "$BUILD_DIR/Connect4_3D.love" "$WEB_STAGE" -t "Connect 4 — 3D" -c
+    cp "$WEB_STAGE/game.data" "$PROJECT_DIR/web/game.data"
+    cp "$WEB_STAGE/game.js" "$PROJECT_DIR/web/game.js"
+    cp "$WEB_STAGE/love.js" "$PROJECT_DIR/web/love.js"
+    cp "$WEB_STAGE/love.wasm" "$PROJECT_DIR/web/love.wasm"
+    mkdir -p "$PROJECT_DIR/web/theme"
+    cp -R "$WEB_STAGE/theme/" "$PROJECT_DIR/web/theme/"
+    mkdir -p "$PROJECT_DIR/web/play"
+    cat << 'EOF' > "$PROJECT_DIR/web/play/index.html"
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="refresh" content="0; url=../">
+  <script type="text/javascript">
+    window.location.replace('../');
+  </script>
+  <title>Connect 4 — 3D</title>
+</head>
+<body></body>
+</html>
+EOF
+    echo "Created WebAssembly game build directly in: $PROJECT_DIR/web"
 fi
 
 echo "=== Build Complete! All Desktop, Mobile & Web Artifacts Ready ==="

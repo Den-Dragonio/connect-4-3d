@@ -2,7 +2,7 @@
   "name": "Connect 4 — 3D (4×4×4)",
   "short_name": "Connect 4 3D",
   "description": "Объёмная тактическая 3D-игра 4×4×4 — Онлайн ELO, Боты, LAN и Кастомизация",
-  "start_url": "./play/index.html",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "any",
@@ -23,4 +23,3 @@
     }
   ]
 }
-

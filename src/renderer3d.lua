@@ -275,29 +275,37 @@ local SHADER_PIXEL = [[
             surfaceAlbedo = mix(u_baseColor.rgb * 0.90, u_baseColor.rgb * 1.08, grain) + vec3(sparkle * 0.22);
             specFactor = 0.45 + sparkle * 0.4;
         } else if (u_materialType > 10.5 && u_materialType < 11.5) {
-            // 11: Небоскрёбы Манхэттена в вечернем свете (тёмное стекло + светящиеся окна)
+            // 11: Реалистичные небоскрёбы Манхэттена (остекление, стальные колонны, перекрытия, тёплые и холодные окна)
             if (N.y > 0.5) {
-                float roofTex = woodNoise3(v_worldPos * 8.0);
-                surfaceAlbedo = mix(vec3(0.10, 0.12, 0.16), vec3(0.18, 0.20, 0.26), roofTex);
-                specFactor = 0.25;
+                float roofTex = woodNoise3(v_worldPos * 7.0);
+                float edgeRim = step(0.42, max(abs(v_localPos.x), abs(v_localPos.z)));
+                surfaceAlbedo = mix(vec3(0.08, 0.09, 0.13), vec3(0.16, 0.18, 0.24), roofTex * 0.6 + edgeRim * 0.4);
+                specFactor = 0.28;
             } else {
-                float wy = fract(v_worldPos.y * 5.2);
-                float wx = fract((v_localPos.x + v_localPos.z) * 4.5);
-                float winCell = step(0.22, wx) * step(wx, 0.78) * step(0.26, wy) * step(wy, 0.76);
-                vec3 cellId = floor(vec3((v_localPos.x + v_localPos.z) * 4.5, v_worldPos.y * 5.2, v_worldPos.x * 2.0 + v_worldPos.z * 2.0));
+                float uFace = (abs(N.x) > 0.5) ? v_localPos.z : v_localPos.x;
+                float cornerPier = step(0.43, abs(uFace));
+                float cols = (uFace + 0.5) * 6.0;
+                float rows = v_worldPos.y * 5.8;
+                float wx = fract(cols);
+                float wy = fract(rows);
+                float winPane = step(0.18, wx) * step(wx, 0.82) * step(0.24, wy) * step(wy, 0.78);
+                vec3 cellId = floor(vec3(cols, rows, v_worldPos.x * 3.1 + v_worldPos.z * 5.7));
                 float litRand = woodHash3(cellId);
-                float isLit = step(0.46, litRand) * winCell;
-                vec3 warmWin = mix(vec3(1.0, 0.82, 0.44), vec3(0.75, 0.90, 1.0), step(0.84, litRand));
-                surfaceAlbedo = mix(vec3(0.06, 0.08, 0.13), warmWin, isLit * 0.85);
-                extraGlow += warmWin * isLit * 0.55;
-                specFactor = mix(0.75, 0.15, isLit);
+                float roomGlow = smoothstep(0.36, 0.92, litRand) * step(0.38, litRand);
+                float isLit = roomGlow * winPane * (1.0 - cornerPier);
+                vec3 glassCol = mix(vec3(0.04, 0.06, 0.11), vec3(0.10, 0.15, 0.24), N.y * 0.5 + 0.5);
+                vec3 winTint = (litRand > 0.82) ? vec3(0.70, 0.88, 1.00) : mix(vec3(1.00, 0.78, 0.36), vec3(1.00, 0.90, 0.62), fract(litRand * 13.0));
+                surfaceAlbedo = mix(glassCol, vec3(0.05, 0.06, 0.09), cornerPier);
+                surfaceAlbedo = mix(surfaceAlbedo, winTint, isLit * 0.90);
+                extraGlow += winTint * isLit * 0.68;
+                specFactor = mix(0.86, 0.18, isLit);
             }
         } else if (u_materialType > 11.5 && u_materialType < 12.5) {
-            // 12: Красный авиационный маячок на шпилях Манхэттена (плавно мигает)
-            float pulse = 0.25 + 0.75 * (0.5 + 0.5 * sin(u_time * 1.5));
-            surfaceAlbedo = vec3(0.85, 0.08, 0.08);
-            extraGlow += vec3(1.0, 0.14, 0.10) * pulse * 0.95;
-            specFactor = 0.9;
+            // 12: Авиационный красный маячок на вершинах шпилей (плавное медленное дыхание света)
+            float pulse = pow(0.5 + 0.5 * sin(u_time * 1.15), 1.5);
+            surfaceAlbedo = vec3(1.00, 0.14, 0.10);
+            extraGlow += vec3(1.00, 0.12, 0.08) * (0.30 + 0.95 * pulse);
+            specFactor = 0.95;
         } else if (u_materialType > 12.5 && u_materialType < 13.5) {
             // 13: Традиционная японская черепичная крыша (Кавара) по фото-референсу
             if (abs(N.z) > 0.65) {
@@ -1268,18 +1276,30 @@ function Renderer3D:renderScene(screenW, screenH, state)
     local baseH = Renderer3D.BASE_THICKNESS
 
     if isManhattanBoard then
-        -- 16 отдельных небоскрёбов разной высоты в вечернем Манхэттене
+        -- Основание ночного квартала (плаза Манхэттена)
+        self:_drawMeshTransform(
+            self.meshBox,
+            { 0.0, -3.55, 0.0 },
+            { baseSpan + 0.55, 0, 0 },
+            { 0, 1.10, 0 },
+            { 0, 0, baseSpan + 0.55 },
+            { 0.04, 0.045, 0.065, 1.0 },
+            { 0, 0, 0 },
+            0.22, 0.0, 1.0, 0.0
+        )
+
+        -- 16 многоуровневых небоскрёбов с архитектурными уступами и светящимися окнами
         local towerHeights = {
-            4.8, 3.6, 5.2, 4.1,
-            3.9, 5.4, 4.3, 4.9,
-            5.1, 4.2, 3.7, 5.3,
-            4.0, 4.7, 5.0, 3.8
+            4.1, 3.3, 4.4, 3.6,
+            3.7, 4.6, 4.2, 4.0,
+            4.3, 4.0, 3.5, 4.5,
+            3.6, 4.1, 4.2, 3.4
         }
         local roofOffsets = {
-            -0.12, -0.55, -0.04, -0.38,
-            -0.44, -0.02, -0.32, -0.15,
-            -0.08, -0.35, -0.52, -0.05,
-            -0.40, -0.18, -0.10, -0.48
+            -0.14, -0.44, -0.06, -0.34,
+            -0.36, -0.02, -0.22, -0.16,
+            -0.10, -0.26, -0.42, -0.04,
+            -0.32, -0.18, -0.12, -0.40
         }
         for gx = 1, 4 do
             for gz = 1, 4 do
@@ -1287,18 +1307,40 @@ function Renderer3D:renderScene(screenW, screenH, state)
                 local wx, wz = self:gridToWorldXZ(gx, gz)
                 local th = towerHeights[idx]
                 local roofY = roofOffsets[idx]
+                local topH = 0.52
+                local mainH = th - topH
+                local mainCenterY = (roofY - topH) - mainH * 0.5
+
+                -- Нижняя основная башня (стекло и сталь)
                 self:_drawMeshTransform(
                     self.meshBox,
-                    { wx, roofY - th * 0.5, wz },
-                    { 0.96, 0, 0 },
-                    { 0, th, 0 },
-                    { 0, 0, 0.96 },
-                    boardSkin.baseColor,
-                    { 0, 0, 0 },
-                    0.65,
-                    0.0,
-                    0.75,
-                    11.0
+                    { wx, mainCenterY, wz },
+                    { 1.04, 0, 0 }, { 0, mainH, 0 }, { 0, 0, 1.04 },
+                    boardSkin.baseColor, { 0, 0, 0 },
+                    0.75, 0.0, 0.85, 11.0
+                )
+                -- Верхний архитектурный ярус с уступом (Art Deco setback)
+                self:_drawMeshTransform(
+                    self.meshBox,
+                    { wx, roofY - topH * 0.5, wz },
+                    { 0.82, 0, 0 }, { 0, topH, 0 }, { 0, 0, 0.82 },
+                    boardSkin.baseColor, { 0, 0, 0 },
+                    0.82, 0.0, 0.90, 11.0
+                )
+                -- Металлический парапет крыши и основание шпиля
+                self:_drawMeshTransform(
+                    self.meshBox,
+                    { wx, roofY + 0.015, wz },
+                    { 0.86, 0, 0 }, { 0, 0.045, 0 }, { 0, 0, 0.86 },
+                    { 0.16, 0.19, 0.25, 1.0 }, { 0, 0, 0 },
+                    0.85, 0.0, 1.0, 7.0
+                )
+                self:_drawMeshTransform(
+                    self.meshBox,
+                    { wx, roofY + 0.06, wz },
+                    { 0.36, 0, 0 }, { 0, 0.08, 0 }, { 0, 0, 0.36 },
+                    { 0.24, 0.28, 0.36, 1.0 }, { 0, 0, 0 },
+                    0.88, 0.0, 1.0, 7.0
                 )
             end
         end
@@ -1406,10 +1448,10 @@ function Renderer3D:renderScene(screenW, screenH, state)
 
     -- 2. Отрисовка 16 столбиков (или антенн / стволов деревьев)
     local roofOffsetsManhattan = {
-        -0.12, -0.55, -0.04, -0.38,
-        -0.44, -0.02, -0.32, -0.15,
-        -0.08, -0.35, -0.52, -0.05,
-        -0.40, -0.18, -0.10, -0.48
+        -0.14, -0.44, -0.06, -0.34,
+        -0.36, -0.02, -0.22, -0.16,
+        -0.10, -0.26, -0.42, -0.04,
+        -0.32, -0.18, -0.12, -0.40
     }
     for gx = 1, 4 do
         for gz = 1, 4 do
@@ -1417,7 +1459,7 @@ function Renderer3D:renderScene(screenW, screenH, state)
             local isHovered = (state.hoveredX == gx and state.hoveredZ == gz)
             local pColor    = isHovered and boardSkin.pegHover or boardSkin.pegColor
             local pEmissive = isHovered and { 0.28, 0.20, 0.06 } or { 0.0, 0.0, 0.0 }
-            local pegScaleXZ = isManhattanBoard and 0.28 or (isSkyscraperBoard and 0.52 or 1.0)
+            local pegScaleXZ = isManhattanBoard and 0.24 or (isSkyscraperBoard and 0.52 or 1.0)
 
             if isManhattanBoard then
                 local idx = (gx - 1) * 4 + gz
@@ -1433,23 +1475,36 @@ function Renderer3D:renderScene(screenW, screenH, state)
                     { 0, 0, pegScaleXZ },
                     pColor,
                     pEmissive,
-                    0.88,
+                    0.92,
                     0.0,
                     1.35,
                     7.0
                 )
-                -- Медленно и плавно мигающий красный маячок на вершине каждого шпиля (авиационный маяк)
+                -- Медленно и плавно мигающая красная лампочка на кончике шпиля + мягкий ореол
                 local t = love.timer.getTime()
-                local beaconPulse = 0.10 + 0.90 * math.pow(math.max(0.0, math.sin(t * 1.5 + idx * 0.4)), 4.0)
+                local beaconPulse = 0.15 + 0.85 * math.pow(0.5 + 0.5 * math.sin(t * 1.1 + idx * 0.35), 1.6)
                 self:_drawMeshTransform(
                     self.meshSphere,
-                    { wx, topY + 0.04, wz },
-                    { 0.08, 0, 0 },
-                    { 0, 0.08, 0 },
-                    { 0, 0, 0.08 },
-                    { 0.98, 0.12, 0.08, 1.0 },
-                    { 1.4 * beaconPulse, 0.12 * beaconPulse, 0.08 * beaconPulse },
-                    0.9,
+                    { wx, topY + 0.05, wz },
+                    { 0.092, 0, 0 },
+                    { 0, 0.092, 0 },
+                    { 0, 0, 0.092 },
+                    { 1.00, 0.14, 0.10, 1.0 },
+                    { 1.35 * beaconPulse, 0.14 * beaconPulse, 0.10 * beaconPulse },
+                    0.95,
+                    0.0,
+                    1.0,
+                    12.0
+                )
+                self:_drawMeshTransform(
+                    self.meshSphere,
+                    { wx, topY + 0.05, wz },
+                    { 0.165, 0, 0 },
+                    { 0, 0.165, 0 },
+                    { 0, 0, 0.165 },
+                    { 1.00, 0.16, 0.12, 0.24 * beaconPulse },
+                    { 0.90 * beaconPulse, 0.10 * beaconPulse, 0.06 * beaconPulse },
+                    0.0,
                     0.0,
                     1.0,
                     0.0
@@ -1968,15 +2023,16 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
                 )
             end
         else
-            -- Два крутящихся 3D-бублика (первый и второй игрок)
-            local s = 1.35
-            local axX = { ca * s, 0, sa * s }
-            local axY = { -sa * 0.35 * s, 0.92 * s, ca * 0.35 * s }
-            local axZ = { -sa * s, -0.35 * s, ca * s }
+            -- Два крутящихся 3D-бублика (первый и второй игрок) с увеличенным зазором, чтобы не пересекались при вращении
+            local s = 1.15
+            local ct, st = math.cos(0.45), math.sin(0.45)
+            local axX = { ca * s, 0, -sa * s }
+            local axY = { sa * st * s, ct * s, ca * st * s }
+            local axZ = { sa * ct * s, -st * s, ca * ct * s }
 
             drawPrev(
                 mesh1,
-                { -0.45, 0.22, 0.0 },
+                { -0.74, 0.46, 0.0 },
                 axX, axY, axZ,
                 itemData.player1Color,
                 { 0, 0, 0 },
@@ -1987,7 +2043,7 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
             )
             drawPrev(
                 mesh2,
-                { 0.45, -0.22, 0.25 },
+                { 0.74, -0.46, 0.0 },
                 axX, axY, axZ,
                 itemData.player2Color,
                 { 0, 0, 0 },
@@ -2015,7 +2071,9 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
         )
     elseif previewType == "board_skin" then
         local bStyle = itemData.style or "wood"
+        local isManh   = (bStyle == "manhattan")
         local mesh = (bStyle == "japanese_roof") and self.meshJapaneseRoof
+            or (isManh and self.meshBox)
             or ((itemData.isRound ~= false) and self.meshRoundBase or self.meshBox)
         local span = 1.45
         local isForest = (bStyle == "forest")
@@ -2023,7 +2081,7 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
         local isCake   = (bStyle == "cake")
         local isSnowy  = (bStyle == "snow" or bStyle == "snowy")
         local isJap    = (bStyle == "japanese_roof")
-        local isCity   = (bStyle == "skyscraper" or bStyle == "manhattan")
+        local isCity   = (bStyle == "skyscraper" or isManh)
         local matId    = isForest and 5.0 or (isMetal and 7.0 or (isCake and 8.0 or (isSnowy and 15.0 or (isJap and 13.0 or (isCity and 11.0 or 0.0)))))
         drawPrev(
             mesh,
@@ -2038,23 +2096,36 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
             1.2,
             matId
         )
-        -- Пара мини-столбиков сверху
-        for _, off in ipairs({ {-0.3, -0.3}, {0.3, -0.3}, {-0.3, 0.3}, {0.3, 0.3} }) do
+        -- Пара мини-столбиков сверху (или шпили с красными огоньками для Манхэттена)
+        local prevTime = love.timer.getTime()
+        for pIdx, off in ipairs({ {-0.3, -0.3}, {0.3, -0.3}, {-0.3, 0.3}, {0.3, 0.3} }) do
             local rx = off[1] * ca - off[2] * sa
             local rz = off[1] * sa + off[2] * ca
+            local pegScale = isCity and 0.22 or 0.35
             drawPrev(
                 self.meshPeg,
                 { rx, -0.02, rz },
-                { 0.35, 0, 0 },
-                { 0, 0.22, 0 },
-                { 0, 0, 0.35 },
+                { pegScale, 0, 0 },
+                { 0, isCity and 0.28 or 0.22, 0 },
+                { 0, 0, pegScale },
                 itemData.pegColor,
                 { 0, 0, 0 },
-                isMetal and 0.90 or 0.3,
+                (isMetal or isCity) and 0.90 or 0.3,
                 itemData.woodStrength or 0.9,
                 1.5,
-                isForest and 6.0 or (isMetal and 7.0 or (isCake and 9.0 or 0.0))
+                isForest and 6.0 or ((isMetal or isCity) and 7.0 or (isCake and 9.0 or 0.0))
             )
+            if isManh and not isSil then
+                local bp = 0.20 + 0.80 * math.pow(0.5 + 0.5 * math.sin(prevTime * 1.1 + pIdx * 0.4), 1.6)
+                drawPrev(
+                    self.meshSphere,
+                    { rx, 0.74, rz },
+                    { 0.08, 0, 0 }, { 0, 0.08, 0 }, { 0, 0, 0.08 },
+                    { 1.0, 0.14, 0.10, 1.0 },
+                    { 1.2 * bp, 0.12 * bp, 0.08 * bp },
+                    0.9, 0.0, 1.0, 12.0
+                )
+            end
         end
     end
 

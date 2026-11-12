@@ -107,6 +107,123 @@ local tournamentUI = {
 }
 local selectedAchievementId = nil
 local friendSearchText = ""
+local friendStatusFeedback = nil
+local friendStatusCache = {}
+local viewedFriendProfile = nil
+local friendProfileReturnScreen = "friend_game_modal"
+local localOnlineRoom = nil
+local friendGameUI = {
+    view = "list", -- "list" | "lobby" | "join"
+    joinCode = "",
+    listScroll = 0,
+    room = nil,
+    errorMsg = nil,
+    pollTimer = 0,
+    invites = {}
+}
+
+local function formatLastSeen(ts, inGame)
+    ts = tonumber(ts) or 0
+    if ts <= 0 then
+        return false, I18N.t("friend_last_unknown")
+    end
+    local diff = math.max(0, os.time() - ts)
+    if diff <= 90 then
+        return true, inGame and I18N.t("friend_in_game") or I18N.t("friend_online_now")
+    elseif diff < 60 then
+        return false, I18N.t("friend_last_seen", I18N.t("friend_just_now"))
+    elseif diff < 3600 then
+        return false, I18N.t("friend_last_seen", I18N.t("friend_mins_ago", math.max(1, math.floor(diff / 60))))
+    elseif diff < 86400 then
+        return false, I18N.t("friend_last_seen", I18N.t("friend_hours_ago", math.max(1, math.floor(diff / 3600))))
+    end
+    return false, I18N.t("friend_last_seen", os.date("%d.%m.%Y %H:%M", ts))
+end
+
+local function refreshFriendsState()
+    local p = Config.profile
+    if not p or not p.isRegistered then return end
+    friendGameUI.invites = Config.syncIncomingFriendMailbox()
+    local pres = Firebase.fetchAllUserPresences()
+    if pres then
+        for k, v in pairs(pres) do
+            friendStatusCache[k] = v
+        end
+    end
+    Storage.save()
+end
+
+local function openFriendProfile(targetUsername, returnScreen)
+    if not Config.profile.isRegistered then
+        friendProfileReturnScreen = returnScreen or "profile_modal"
+        viewedFriendProfile = nil
+        return
+    end
+    local prof = Config.findUserByUsername(targetUsername)
+    if prof then
+        Config.ensureProfileFields(prof)
+        local key = (prof.username or targetUsername):lower()
+        local pres = friendStatusCache[key]
+        if not pres then
+            local allPres = Firebase.fetchAllUserPresences()
+            if allPres and allPres[key] then
+                friendStatusCache[key] = allPres[key]
+                pres = allPres[key]
+            end
+        end
+        if pres and pres.ts and pres.ts > (prof.lastSeen or 0) then
+            prof.lastSeen = pres.ts
+            prof.inGameNow = pres.inGame
+        end
+        viewedFriendProfile = prof
+        friendProfileReturnScreen = returnScreen or "friend_game_modal"
+        selectedAchievementId = nil
+        currentScreen = "friend_profile_modal"
+    else
+        friendStatusFeedback = I18N.t("friend_not_found")
+    end
+end
+
+local ACHIEVEMENTS_META = {
+    { id = "first_win",      icon = "★", key = "ach_first_win",      desc = "ach_desc_first_win" },
+    { id = "diag_3d",        icon = "❖", key = "ach_3d_diag",        desc = "ach_desc_3d_diag" },
+    { id = "veteran",        icon = "10", key = "ach_veteran",       desc = "ach_desc_veteran" },
+    { id = "bot_easy",       icon = "B1", key = "ach_bot_easy",      desc = "ach_desc_bot_easy" },
+    { id = "bot_medium",     icon = "B2", key = "ach_bot_medium",    desc = "ach_desc_bot_medium" },
+    { id = "bot_hard",       icon = "B3", key = "ach_bot_hard",      desc = "ach_desc_bot_hard" },
+    { id = "wins_10",        icon = "W10", key = "ach_wins_10",      desc = "ach_desc_wins_10" },
+    { id = "wins_100",       icon = "W100", key = "ach_wins_100",    desc = "ach_desc_wins_100" },
+    { id = "wins_1000",      icon = "1K", key = "ach_wins_1000",     desc = "ach_desc_wins_1000" },
+    { id = "first_friend",   icon = "F1", key = "ach_first_friend",  desc = "ach_desc_first_friend" },
+    { id = "pioneer_1000",   icon = "#1K", key = "ach_pioneer_1000", desc = "ach_desc_pioneer_1000" },
+    { id = "tournament_win", icon = "🏆", key = "ach_tournament_win", desc = "ach_desc_tournament_win" }
+}
+
+local function startFriendRoomLobby(inviteTarget)
+    if not Config.profile.isRegistered then
+        friendGameUI.errorMsg = I18N.t("friends_reg_only")
+        friendStatusFeedback = I18N.t("friends_reg_only")
+        return false
+    end
+    local room = Firebase.createFriendRoom({
+        host = Config.profile.username,
+        ruleMode = Config.ruleMode,
+        timeMinutes = Config.onlineTimeMinutes or 5
+    })
+    if not room then
+        friendGameUI.errorMsg = I18N.t("friend_room_not_found")
+        return false
+    end
+    if inviteTarget and #inviteTarget > 0 then
+        Firebase.sendGameInvite(inviteTarget, Config.profile.username, room.code, Config.ruleMode, Config.onlineTimeMinutes or 5)
+    end
+    friendGameUI.room = room
+    friendGameUI.view = "lobby"
+    friendGameUI.errorMsg = nil
+    friendGameUI.pollTimer = 1.2
+    currentScreen = "friend_game_modal"
+    return true
+end
 local rulesScrollOffset = 0
 local snowflakes = {}
 for i = 1, 70 do
@@ -276,15 +393,18 @@ local function isLocalPlayerTurn()
         return gameLogic.currentPlayer == Config.humanPlayer
     elseif Config.currentMode == Config.GameMode.LAN then
         return gameLogic.currentPlayer == Config.humanPlayer
+    elseif Config.currentMode == Config.GameMode.ONLINE and localOnlineRoom then
+        return gameLogic.currentPlayer == Config.humanPlayer
     end
     return true
 end
 
-local function startNewGame(mode, difficulty, lanRole)
+local function startNewGame(mode, difficulty, lanRole, onlineRoom)
     Config.currentMode = mode or Config.GameMode.LOCAL_PVP
     if difficulty then
         Config.botDifficulty = difficulty
     end
+    localOnlineRoom = onlineRoom
 
     if Config.currentMode == Config.GameMode.VS_BOT then
         if Config.botColorChoice == "white" then
@@ -302,6 +422,12 @@ local function startNewGame(mode, difficulty, lanRole)
         else
             Config.humanPlayer = BoardLogic.Player.WHITE
         end
+    elseif Config.currentMode == Config.GameMode.ONLINE and localOnlineRoom then
+        Config.ruleMode = localOnlineRoom.ruleMode or Config.ruleMode
+        Config.onlineTimeMinutes = localOnlineRoom.timeMinutes or Config.onlineTimeMinutes
+        Config.humanPlayer = (localOnlineRoom.role == "guest")
+            and BoardLogic.Player.BLACK
+            or  BoardLogic.Player.WHITE
     else
         Config.humanPlayer = BoardLogic.Player.WHITE
     end
@@ -348,7 +474,8 @@ local function finalizeGameEnd()
         gameLogic.winningLineType,
         #gameLogic.moveHistory,
         elapsedSec,
-        gameLogic.moveHistory
+        gameLogic.moveHistory,
+        localOnlineRoom and localOnlineRoom.opponent or nil
     )
     if activeTournamentMatch and Tournament.active then
         local humanWon = (gameLogic.winner == Config.humanPlayer)
@@ -396,6 +523,13 @@ local function triggerMove(gx, gz, fromNetwork, gy)
 
     if Config.currentMode == Config.GameMode.LAN and not fromNetwork then
         LAN.sendMove(gx, gz)
+    elseif Config.currentMode == Config.GameMode.ONLINE and localOnlineRoom and not fromNetwork then
+        local token = string.format("%d,%d,%d", res.pos.x, res.pos.y, res.pos.z)
+        localOnlineRoom.movesStr = (localOnlineRoom.movesStr and localOnlineRoom.movesStr ~= "")
+            and (localOnlineRoom.movesStr .. ";" .. token)
+            or  token
+        localOnlineRoom.syncedMoves = #gameLogic.moveHistory
+        Firebase.pushFriendRoomMove(localOnlineRoom.code, localOnlineRoom.movesStr, localOnlineRoom.syncedMoves)
     end
 
     hoveredX, hoveredZ, hoveredY = nil, nil, nil
@@ -536,6 +670,16 @@ function love.load()
         end
         currentScreen = "shop"
         love.draw()
+        currentScreen = "online_modal"
+        love.draw()
+        currentScreen = "profile_modal"
+        love.draw()
+        currentScreen = "friend_game_modal"
+        love.draw()
+        viewedFriendProfile = Config.profile
+        currentScreen = "friend_profile_modal"
+        love.draw()
+        viewedFriendProfile = nil
         gameLogic:reset()
         currentScreen = "menu"
         print("[CI-TEST] ALL TESTS PASSED SUCCESSFULLY!")
@@ -563,10 +707,59 @@ function love.update(dt)
     if matchmakingState.statsTimer <= 0 then
         matchmakingState.statsTimer = 12.0
         local inMatch = (currentScreen == "game" and Config.currentMode == Config.GameMode.ONLINE)
-        Firebase.sendPresenceHeartbeat(Config.profile.username, inMatch)
+        Firebase.sendPresenceHeartbeat(Config.profile.username, inMatch, Config.profile.isRegistered)
         local pCnt, gCnt = Firebase.fetchOnlineStats()
         if pCnt then Config.onlinePlayersCount = pCnt end
         if gCnt then Config.onlineActiveGames = gCnt end
+    end
+
+    if currentScreen == "friend_game_modal" and Config.profile.isRegistered then
+        friendGameUI.pollTimer = (friendGameUI.pollTimer or 0) - dt
+        if friendGameUI.pollTimer <= 0 then
+            if friendGameUI.view == "lobby" and friendGameUI.room then
+                friendGameUI.pollTimer = 1.2
+                local remote = Firebase.fetchFriendRoom(friendGameUI.room.code)
+                if remote and remote.guest ~= "" and remote.status == "playing" then
+                    local roomObj = {
+                        code        = remote.code,
+                        role        = "host",
+                        opponent    = remote.guest,
+                        ruleMode    = remote.ruleMode,
+                        timeMinutes = remote.timeMinutes,
+                        syncedMoves = 0,
+                        movesStr    = "",
+                        pollTimer   = 0.9
+                    }
+                    friendGameUI.room = nil
+                    friendGameUI.view = "list"
+                    startNewGame(Config.GameMode.ONLINE, nil, nil, roomObj)
+                end
+            else
+                friendGameUI.pollTimer = 6.0
+                refreshFriendsState()
+            end
+        end
+    end
+
+    if currentScreen == "game" and Config.currentMode == Config.GameMode.ONLINE and localOnlineRoom and not gameLogic.isGameOver then
+        localOnlineRoom.pollTimer = (localOnlineRoom.pollTimer or 0) - dt
+        if localOnlineRoom.pollTimer <= 0 then
+            localOnlineRoom.pollTimer = 0.9
+            local remote = Firebase.fetchFriendRoom(localOnlineRoom.code)
+            if remote and remote.moveCount > #gameLogic.moveHistory then
+                localOnlineRoom.movesStr = remote.moves or ""
+                local parsed = {}
+                for mx, my, mz in (remote.moves or ""):gmatch("(%d+),(%d+),(%d+)") do
+                    table.insert(parsed, { tonumber(mx), tonumber(my), tonumber(mz) })
+                end
+                for idx = #gameLogic.moveHistory + 1, #parsed do
+                    local mv = parsed[idx]
+                    if mv then
+                        triggerMove(mv[1], mv[3], true, mv[2])
+                    end
+                end
+            end
+        end
     end
 
     if matchmakingState.active then
@@ -772,6 +965,8 @@ local function drawProfileCornerButton(sw)
         x = bx, y = by, w = bw, h = bh,
         onClick = function()
             Sound.play("click")
+            friendStatusFeedback = nil
+            refreshFriendsState()
             currentScreen = "profile_modal"
         end
     })
@@ -1067,7 +1262,24 @@ local function drawOnlineModal(sw, sh)
             matchmakingState.timer = 0
         end
     })
-    drawButton("online_tournament", bx + halfW + 12, py + 284, halfW, 44, I18N.t("tournament_btn"), {
+    drawButton("online_friends", bx + halfW + 12, py + 284, halfW, 44, I18N.t("play_friend_btn"), {
+        accent = true,
+        font = fonts.small,
+        onClick = function()
+            Sound.play("click")
+            friendGameUI.errorMsg = nil
+            friendStatusFeedback = nil
+            if Config.profile.isRegistered then
+                friendGameUI.view = friendGameUI.room and "lobby" or "list"
+                refreshFriendsState()
+            else
+                friendGameUI.view = "list"
+            end
+            currentScreen = "friend_game_modal"
+        end
+    })
+
+    drawButton("online_tournament", bx, py + 338, halfW, 42, I18N.t("tournament_btn"), {
         accent = true,
         font = fonts.small,
         onClick = function()
@@ -1077,9 +1289,9 @@ local function drawOnlineModal(sw, sh)
             currentScreen = "tournament_modal"
         end
     })
-
-    drawButton("online_lan", bx, py + 338, bw, 42, I18N.t("lan_btn"), {
+    drawButton("online_lan", bx + halfW + 12, py + 338, halfW, 42, I18N.t("lan_btn"), {
         active = true,
+        font = fonts.small,
         onClick = function()
             Sound.play("click")
             LAN.stop()
@@ -1098,6 +1310,511 @@ local function drawOnlineModal(sw, sh)
             currentScreen = "menu"
         end
     })
+end
+
+local function drawFriendGameModal(sw, sh)
+    local ui = Config.getUITheme()
+    local p = Config.profile
+    if not p.isRegistered then
+        local pw, ph = 520, 290
+        local px, py = (sw - pw) * 0.5, (sh - ph) * 0.5
+        drawPanel(px, py, pw, ph)
+        love.graphics.setFont(fonts.h2)
+        love.graphics.setColor(ui.textMain)
+        love.graphics.printf(I18N.t("friend_game_title"), px, py + 24, pw, "center")
+
+        love.graphics.setFont(fonts.body)
+        love.graphics.setColor(ui.textSub)
+        love.graphics.printf(I18N.t("friends_reg_only"), px + 36, py + 84, pw - 72, "center")
+
+        local bx, bw = px + 44, pw - 88
+        local halfW = (bw - 12) * 0.5
+        drawButton("fg_reg_btn", bx, py + 158, halfW, 42, I18N.t("register_btn"), {
+            accent = true,
+            onClick = function() Sound.play("click"); openAuthModal("register") end
+        })
+        drawButton("fg_login_btn", bx + halfW + 12, py + 158, halfW, 42, I18N.t("signin_btn"), {
+            onClick = function() Sound.play("click"); openAuthModal("login") end
+        })
+        drawButton("fg_unreg_back", px + pw * 0.5 - 85, py + ph - 56, 170, 40, I18N.t("back_btn"), {
+            onClick = function() Sound.play("click"); currentScreen = "online_modal" end
+        })
+        return
+    end
+
+    local pw, ph = 760, 560
+    local px, py = (sw - pw) * 0.5, (sh - ph) * 0.5
+    drawPanel(px, py, pw, ph)
+
+    love.graphics.setFont(fonts.h2)
+    love.graphics.setColor(ui.textMain)
+    love.graphics.printf(I18N.t("friend_game_title"), px, py + 18, pw, "center")
+
+    -- Navigation tabs: Friends List (N/50) | Create Room | Join by Code
+    local tabW = (pw - 84) / 3
+    drawButton("fg_tab_list", px + 30, py + 56, tabW, 36, I18N.t("friends_title") .. " (" .. tostring(#(p.friends or {})) .. "/50)", {
+        active = (friendGameUI.view == "list"),
+        font = fonts.small,
+        onClick = function()
+            Sound.play("click")
+            friendGameUI.view = "list"
+            friendGameUI.errorMsg = nil
+            refreshFriendsState()
+        end
+    })
+    drawButton("fg_tab_create", px + 42 + tabW, py + 56, tabW, 36, I18N.t("friend_create_room"), {
+        active = (friendGameUI.view == "lobby"),
+        accent = true,
+        font = fonts.small,
+        onClick = function()
+            Sound.play("click")
+            startFriendRoomLobby(nil)
+        end
+    })
+    drawButton("fg_tab_join", px + 54 + tabW * 2, py + 56, tabW, 36, I18N.t("friend_join_room"), {
+        active = (friendGameUI.view == "join"),
+        font = fonts.small,
+        onClick = function()
+            Sound.play("click")
+            friendGameUI.view = "join"
+            friendGameUI.errorMsg = nil
+            pcall(love.keyboard.setTextInput, true)
+        end
+    })
+
+    if friendGameUI.view == "lobby" and friendGameUI.room then
+        local room = friendGameUI.room
+        love.graphics.setColor(ui.bgClear)
+        love.graphics.rectangle("fill", px + 90, py + 132, pw - 180, 270, 12, 12)
+        love.graphics.setColor(ui.panelBorder)
+        love.graphics.rectangle("line", px + 90, py + 132, pw - 180, 270, 12, 12)
+
+        love.graphics.setFont(fonts.body)
+        love.graphics.setColor(ui.textSub)
+        love.graphics.printf(I18N.t("friend_room_code_label"), px + 90, py + 154, pw - 180, "center")
+
+        love.graphics.setFont(fonts.title)
+        love.graphics.setColor(ui.accentText)
+        love.graphics.printf(tostring(room.code or "------"), px + 90, py + 190, pw - 180, "center")
+
+        local ruleStr = (room.ruleMode == "free") and I18N.t("rule_free") or I18N.t("rule_standard")
+        local timeStr = tostring(room.timeMinutes or 5) .. "m"
+        love.graphics.setFont(fonts.small)
+        love.graphics.setColor(ui.textSub)
+        love.graphics.printf(ruleStr .. "  •  " .. timeStr, px + 90, py + 244, pw - 180, "center")
+
+        local pulse = 0.65 + 0.35 * math.sin(love.timer.getTime() * 3.0)
+        love.graphics.setFont(fonts.btn)
+        love.graphics.setColor(ui.textMain[1], ui.textMain[2], ui.textMain[3], pulse)
+        love.graphics.printf(I18N.t("friend_waiting_room"), px + 90, py + 280, pw - 180, "center")
+
+        love.graphics.setFont(fonts.small)
+        love.graphics.setColor(ui.textSub)
+        love.graphics.printf(I18N.t("friend_waiting_hint"), px + 110, py + 314, pw - 220, "center")
+
+        drawButton("fg_cancel_room", px + pw * 0.5 - 110, py + 348, 220, 38, I18N.t("friend_cancel_room"), {
+            onClick = function()
+                Sound.play("click")
+                Firebase.closeFriendRoom(room.code)
+                friendGameUI.room = nil
+                friendGameUI.view = "list"
+            end
+        })
+    elseif friendGameUI.view == "join" then
+        love.graphics.setColor(ui.bgClear)
+        love.graphics.rectangle("fill", px + 110, py + 140, pw - 220, 240, 12, 12)
+        love.graphics.setColor(ui.panelBorder)
+        love.graphics.rectangle("line", px + 110, py + 140, pw - 220, 240, 12, 12)
+
+        love.graphics.setFont(fonts.body)
+        love.graphics.setColor(ui.textMain)
+        love.graphics.printf(I18N.t("friend_room_code_label"), px + 110, py + 164, pw - 220, "center")
+
+        local boxX, boxY, boxW, boxH = px + pw * 0.5 - 130, py + 200, 260, 48
+        love.graphics.setColor(ui.panelBg)
+        love.graphics.rectangle("fill", boxX, boxY, boxW, boxH, 8, 8)
+        love.graphics.setColor(ui.btnHoverBorder)
+        love.graphics.rectangle("line", boxX, boxY, boxW, boxH, 8, 8)
+
+        local blink = (math.floor(love.timer.getTime() * 2) % 2 == 0) and "|" or ""
+        love.graphics.setFont(fonts.h2)
+        love.graphics.setColor(ui.textMain)
+        love.graphics.printf((friendGameUI.joinCode or "") .. blink, boxX, boxY + 11, boxW, "center")
+        table.insert(uiButtons, {
+            id = "fg_code_focus",
+            x = boxX, y = boxY, w = boxW, h = boxH,
+            onClick = function() pcall(love.keyboard.setTextInput, true) end
+        })
+
+        drawButton("fg_join_confirm", px + pw * 0.5 - 110, py + 266, 220, 44, I18N.t("friend_join_room"), {
+            primary = true,
+            onClick = function()
+                Sound.play("click")
+                local code = (friendGameUI.joinCode or ""):upper()
+                if #code < 4 then
+                    friendGameUI.errorMsg = I18N.t("friend_room_not_found")
+                    return
+                end
+                local okJoin, roomOrErr = Firebase.joinFriendRoom(code, p.username)
+                if okJoin and type(roomOrErr) == "table" then
+                    friendGameUI.errorMsg = nil
+                    friendGameUI.room = nil
+                    localOnlineRoom = {
+                        code = roomOrErr.code,
+                        role = "guest",
+                        opponent = roomOrErr.host,
+                        ruleMode = roomOrErr.ruleMode or Config.ruleMode,
+                        timeMinutes = tonumber(roomOrErr.timeMinutes) or 5,
+                        lastMoveCount = 0,
+                        pollTimer = 0
+                    }
+                    startNewGame(Config.GameMode.ONLINE)
+                else
+                    friendGameUI.errorMsg = I18N.t("friend_room_not_found")
+                end
+            end
+        })
+
+        if friendGameUI.errorMsg then
+            love.graphics.setFont(fonts.small)
+            love.graphics.setColor(0.95, 0.38, 0.38, 1.0)
+            love.graphics.printf(friendGameUI.errorMsg, px + 110, py + 324, pw - 220, "center")
+        end
+    else
+        -- Friends List + Search + Live Invites + Online/Last Seen Status
+        local sy = py + 104
+        love.graphics.setColor(ui.bgClear)
+        love.graphics.rectangle("fill", px + 30, sy, 260, 34, 6, 6)
+        love.graphics.setColor(ui.panelBorder)
+        love.graphics.rectangle("line", px + 30, sy, 260, 34, 6, 6)
+        love.graphics.setFont(fonts.small)
+        love.graphics.setColor(friendSearchText ~= "" and ui.textMain or ui.textSub)
+        love.graphics.print(friendSearchText ~= "" and friendSearchText or I18N.t("friend_search"), px + 40, sy + 10)
+        table.insert(uiButtons, {
+            id = "fg_search_focus",
+            x = px + 30, y = sy, w = 260, h = 34,
+            onClick = function() pcall(love.keyboard.setTextInput, true) end
+        })
+
+        drawButton("fg_add_friend", px + 298, sy, 120, 34, I18N.t("friend_add"), {
+            primary = true,
+            font = fonts.small,
+            onClick = function()
+                Sound.play("click")
+                if #friendSearchText >= 3 then
+                    local okAdd, errKey = Config.sendFriendRequest(friendSearchText)
+                    if okAdd then
+                        friendSearchText = ""
+                        friendStatusFeedback = nil
+                    else
+                        friendStatusFeedback = I18N.t(errKey or "friend_not_found")
+                    end
+                    Storage.save()
+                    refreshFriendsState()
+                end
+            end
+        })
+
+        if friendStatusFeedback then
+            love.graphics.setFont(fonts.small)
+            love.graphics.setColor(0.95, 0.45, 0.38, 1.0)
+            love.graphics.print(friendStatusFeedback, px + 430, sy + 10)
+        end
+
+        local listTop = py + 148
+        -- Pending game invite banner
+        if #(friendGameUI.invites or {}) > 0 then
+            local inv = friendGameUI.invites[1]
+            love.graphics.setColor(0.18, 0.40, 0.28, 0.95)
+            love.graphics.rectangle("fill", px + 30, listTop, pw - 60, 36, 8, 8)
+            love.graphics.setColor(0.32, 0.85, 0.52, 1.0)
+            love.graphics.rectangle("line", px + 30, listTop, pw - 60, 36, 8, 8)
+            love.graphics.setFont(fonts.small)
+            love.graphics.setColor(ui.textMain)
+            love.graphics.print(I18N.t("friend_invite_from", inv.from or "?", inv.code or ""), px + 42, listTop + 10)
+
+            drawButton("fg_acc_inv", px + pw - 210, listTop + 5, 96, 26, I18N.t("friend_accept"), {
+                primary = true, font = fonts.small,
+                onClick = function()
+                    Sound.play("click")
+                    Firebase.clearGameInvite(p.username, inv.from)
+                    local okJoin, roomOrErr = Firebase.joinFriendRoom(inv.code, p.username)
+                    if okJoin and type(roomOrErr) == "table" then
+                        localOnlineRoom = {
+                            code = roomOrErr.code,
+                            role = "guest",
+                            opponent = roomOrErr.host,
+                            ruleMode = roomOrErr.ruleMode or Config.ruleMode,
+                            timeMinutes = tonumber(roomOrErr.timeMinutes) or 5,
+                            lastMoveCount = 0,
+                            pollTimer = 0
+                        }
+                        friendGameUI.invites = {}
+                        startNewGame(Config.GameMode.ONLINE)
+                    else
+                        friendStatusFeedback = I18N.t("friend_room_not_found")
+                        refreshFriendsState()
+                    end
+                end
+            })
+            drawButton("fg_dec_inv", px + pw - 108, listTop + 5, 68, 26, I18N.t("friend_decline"), {
+                font = fonts.small,
+                onClick = function()
+                    Sound.play("click")
+                    Firebase.clearGameInvite(p.username, inv.from)
+                    refreshFriendsState()
+                end
+            })
+            listTop = listTop + 44
+        end
+
+        -- Pending incoming friend request banner (up to 1 inline)
+        if #(p.incomingRequests or {}) > 0 then
+            local reqName = p.incomingRequests[1]
+            love.graphics.setColor(ui.bgClear)
+            love.graphics.rectangle("fill", px + 30, listTop, pw - 60, 34, 6, 6)
+            love.graphics.setColor(ui.panelBorder)
+            love.graphics.rectangle("line", px + 30, listTop, pw - 60, 34, 6, 6)
+            love.graphics.setFont(fonts.small)
+            love.graphics.setColor(ui.accentText)
+            love.graphics.print("+ " .. reqName, px + 42, listTop + 9)
+            drawButton("fg_req_acc", px + pw - 210, listTop + 4, 86, 26, I18N.t("friend_accept"), {
+                primary = true, font = fonts.small,
+                onClick = function()
+                    Sound.play("click")
+                    local okA, errA = Config.acceptFriendRequest(reqName)
+                    if not okA and errA then friendStatusFeedback = I18N.t(errA) end
+                    Storage.save()
+                    refreshFriendsState()
+                end
+            })
+            drawButton("fg_req_dec", px + pw - 118, listTop + 4, 78, 26, I18N.t("friend_decline"), {
+                font = fonts.small,
+                onClick = function()
+                    Sound.play("click")
+                    Config.declineFriendRequest(reqName)
+                    Storage.save()
+                    refreshFriendsState()
+                end
+            })
+            listTop = listTop + 42
+        end
+
+        local friends = p.friends or {}
+        if #friends == 0 then
+            love.graphics.setFont(fonts.body)
+            love.graphics.setColor(ui.textSub)
+            love.graphics.printf(I18N.t("friend_empty_list"), px + 40, listTop + 48, pw - 80, "center")
+        else
+            local listH = (py + ph - 68) - listTop
+            local rowH = 44
+            local maxVisible = math.max(1, math.floor(listH / (rowH + 6)))
+            local maxScroll = math.max(0, #friends - maxVisible)
+            friendGameUI.listScroll = math.max(0, math.min(maxScroll, friendGameUI.listScroll or 0))
+
+            for idx = 1, maxVisible do
+                local fi = idx + friendGameUI.listScroll
+                local fn = friends[fi]
+                if not fn then break end
+                local ry = listTop + (idx - 1) * (rowH + 6)
+                love.graphics.setColor(ui.bgClear)
+                love.graphics.rectangle("fill", px + 30, ry, pw - 60, rowH, 8, 8)
+                love.graphics.setColor(ui.panelBorder)
+                love.graphics.rectangle("line", px + 30, ry, pw - 60, rowH, 8, 8)
+
+                local pres = friendStatusCache[fn:lower()] or {}
+                local isOnline, statusText = formatLastSeen(pres.ts, pres.inGame)
+                love.graphics.setColor(isOnline and { 0.22, 0.88, 0.45, 1.0 } or { 0.48, 0.52, 0.58, 1.0 })
+                love.graphics.circle("fill", px + 48, ry + rowH * 0.5, 5.5)
+
+                love.graphics.setFont(fonts.btn)
+                love.graphics.setColor(ui.textMain)
+                love.graphics.print(fn, px + 64, ry + 5)
+
+                love.graphics.setFont(fonts.small)
+                love.graphics.setColor(isOnline and { 0.35, 0.90, 0.55, 1.0 } or ui.textSub)
+                love.graphics.print(statusText, px + 64, ry + 24)
+
+                drawButton("fg_prof_" .. fi, px + pw - 294, ry + 7, 102, 30, I18N.t("friend_profile_title"), {
+                    font = fonts.small,
+                    onClick = function()
+                        Sound.play("click")
+                        openFriendProfile(fn, "friend_game_modal")
+                    end
+                })
+                drawButton("fg_inv_" .. fi, px + pw - 186, ry + 7, 106, 30, I18N.t("friend_invite_btn"), {
+                    primary = true, font = fonts.small,
+                    onClick = function()
+                        Sound.play("click")
+                        startFriendRoomLobby(fn)
+                    end
+                })
+                drawButton("fg_rem_" .. fi, px + pw - 74, ry + 7, 34, 30, "X", {
+                    font = fonts.small,
+                    onClick = function()
+                        Sound.play("click")
+                        Config.removeFriend(fn)
+                        Storage.save()
+                        refreshFriendsState()
+                    end
+                })
+            end
+        end
+    end
+
+    drawButton("fg_back", px + pw * 0.5 - 90, py + ph - 54, 180, 40, I18N.t("back_btn"), {
+        onClick = function()
+            Sound.play("click")
+            if friendGameUI.room then
+                Firebase.closeFriendRoom(friendGameUI.room.code)
+                friendGameUI.room = nil
+            end
+            currentScreen = "online_modal"
+        end
+    })
+end
+
+local function drawFriendProfileModal(sw, sh)
+    local ui = Config.getUITheme()
+    local fp = viewedFriendProfile
+    if not fp then
+        currentScreen = friendProfileReturnScreen or "profile_modal"
+        return
+    end
+    local pw, ph = 660, 510
+    local px, py = (sw - pw) * 0.5, (sh - ph) * 0.5
+    drawPanel(px, py, pw, ph)
+
+    love.graphics.setFont(fonts.h2)
+    love.graphics.setColor(ui.textMain)
+    love.graphics.printf(I18N.t("friend_profile_title") .. " — " .. tostring(fp.username), px, py + 18, pw, "center")
+
+    -- Avatar circle + online status + Registration date
+    local acx, acy = px + 62, py + 86
+    local presets = {
+        { 0.25, 0.58, 0.88 }, { 0.85, 0.36, 0.36 }, { 0.28, 0.72, 0.48 },
+        { 0.78, 0.55, 0.22 }, { 0.62, 0.42, 0.85 }, { 0.22, 0.68, 0.74 }
+    }
+    local acol = presets[((fp.avatarPreset or 1) - 1) % #presets + 1]
+    love.graphics.setColor(acol[1], acol[2], acol[3], 1.0)
+    love.graphics.circle("fill", acx, acy, 28)
+    love.graphics.setColor(ui.panelBorder)
+    love.graphics.circle("line", acx, acy, 28)
+    love.graphics.setFont(fonts.h2)
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.printf((fp.username or "?"):sub(1, 1):upper(), acx - 28, acy - 13, 56, "center")
+
+    local isOnline, statusText = formatLastSeen(fp.lastSeen, fp.inGameNow)
+    love.graphics.setFont(fonts.small)
+    love.graphics.setColor(isOnline and { 0.30, 0.90, 0.50, 1.0 } or ui.textSub)
+    love.graphics.print(statusText, px + 106, py + 62)
+
+    love.graphics.setColor(ui.accentText)
+    love.graphics.print(I18N.t("profile_registered_at", fp.createdAtStr or "—"), px + 106, py + 82)
+
+    love.graphics.setFont(fonts.body)
+    love.graphics.setColor(ui.textMain)
+    love.graphics.print(I18N.t("profile_games", fp.gamesPlayed or 0, fp.wins or 0, fp.losses or 0, fp.draws or 0), px + 106, py + 104)
+
+    -- All 4 ELO ratings
+    love.graphics.setFont(fonts.btn)
+    love.graphics.setColor(ui.textMain)
+    love.graphics.print(I18N.t("friend_all_elo"), px + 34, py + 140)
+
+    local eloModes = { "std_blitz", "std_bullet", "free_blitz", "free_bullet" }
+    local cardW = (pw - 92) / 4
+    for i, em in ipairs(eloModes) do
+        local cx = px + 34 + (i - 1) * (cardW + 8)
+        local cy = py + 168
+        love.graphics.setColor(ui.bgClear)
+        love.graphics.rectangle("fill", cx, cy, cardW, 64, 8, 8)
+        love.graphics.setColor(ui.panelBorder)
+        love.graphics.rectangle("line", cx, cy, cardW, 64, 8, 8)
+        love.graphics.setFont(fonts.small)
+        love.graphics.setColor(ui.textSub)
+        love.graphics.printf(I18N.t("elo_" .. em), cx + 4, cy + 8, cardW - 8, "center")
+        love.graphics.setFont(fonts.h2)
+        love.graphics.setColor(ui.accentText)
+        local val = (fp.ratings and fp.ratings[em]) or fp.rating or 800
+        love.graphics.printf(tostring(val), cx + 4, cy + 32, cardW - 8, "center")
+    end
+
+    -- Friend's earned achievements
+    love.graphics.setFont(fonts.btn)
+    love.graphics.setColor(ui.textMain)
+    love.graphics.print(I18N.t("profile_achievements"), px + 34, py + 250)
+
+    local earnedAchs = {}
+    for _, a in ipairs(ACHIEVEMENTS_META) do
+        if fp.achievements and fp.achievements[a.id] then
+            table.insert(earnedAchs, a)
+        end
+    end
+    if #earnedAchs == 0 then
+        love.graphics.setFont(fonts.small)
+        love.graphics.setColor(ui.textSub)
+        love.graphics.print(I18N.t("no_achievements_yet"), px + 34, py + 284)
+    else
+        local badgeSize, gap = 52, 10
+        for i, a in ipairs(earnedAchs) do
+            if i <= 9 then
+                local abx = px + 34 + (i - 1) * (badgeSize + gap)
+                local aby = py + 280
+                love.graphics.setColor(0.22, 0.68, 0.44, 1.0)
+                love.graphics.rectangle("fill", abx, aby, badgeSize, 42, 8, 8)
+                love.graphics.setColor(selectedAchievementId == a.id and ui.accentText or ui.panelBorder)
+                love.graphics.rectangle("line", abx, aby, badgeSize, 42, 8, 8)
+                love.graphics.setFont(fonts.small)
+                love.graphics.setColor(ui.textMain)
+                love.graphics.printf(a.icon, abx, aby + 13, badgeSize, "center")
+                table.insert(uiButtons, {
+                    id = "fp_ach_" .. a.id,
+                    x = abx, y = aby, w = badgeSize, h = 42,
+                    onClick = function()
+                        Sound.play("click")
+                        selectedAchievementId = (selectedAchievementId == a.id) and nil or a.id
+                    end
+                })
+            end
+        end
+    end
+
+    if selectedAchievementId then
+        for _, a in ipairs(ACHIEVEMENTS_META) do
+            if a.id == selectedAchievementId then
+                love.graphics.setColor(ui.bgClear)
+                love.graphics.rectangle("fill", px + 34, py + 334, pw - 68, 30, 6, 6)
+                love.graphics.setFont(fonts.small)
+                love.graphics.setColor(ui.textMain)
+                love.graphics.print(I18N.t(a.key) .. " — " .. I18N.t(a.desc), px + 44, py + 341)
+            end
+        end
+    end
+
+    if Config.profile.isRegistered then
+        drawButton("fp_invite_play", px + pw * 0.5 - 195, py + ph - 58, 185, 42, I18N.t("friend_invite_btn"), {
+            primary = true,
+            onClick = function()
+                Sound.play("click")
+                startFriendRoomLobby(fp.username)
+            end
+        })
+        drawButton("fp_back", px + pw * 0.5 + 10, py + ph - 58, 185, 42, I18N.t("back_btn"), {
+            onClick = function()
+                Sound.play("click")
+                selectedAchievementId = nil
+                currentScreen = friendProfileReturnScreen or "profile_modal"
+            end
+        })
+    else
+        drawButton("fp_back", px + pw * 0.5 - 90, py + ph - 58, 180, 42, I18N.t("back_btn"), {
+            onClick = function()
+                Sound.play("click")
+                selectedAchievementId = nil
+                currentScreen = friendProfileReturnScreen or "profile_modal"
+            end
+        })
+    end
 end
 
 local function drawTournamentModal(sw, sh)
@@ -1387,12 +2104,12 @@ local function drawProfileModal(sw, sh)
     love.graphics.setFont(fonts.h2)
     love.graphics.setColor(ui.textMain)
     local streakStr = ((p.winStreak or 0) >= 5) and ("  🔥 " .. tostring(p.winStreak)) or ""
-    love.graphics.print(p.username .. streakStr, px + 104, py + 50)
+    love.graphics.print(p.username .. streakStr, px + 104, py + 48)
 
-    if p.isRegistered and p.email and #p.email > 0 then
+    if p.isRegistered then
         love.graphics.setFont(fonts.small)
         love.graphics.setColor(ui.accentText)
-        love.graphics.print(I18N.t("profile_email") .. " " .. p.email, px + 104, py + 76)
+        love.graphics.print(I18N.t("profile_registered_at", p.createdAtStr or os.date("%d.%m.%Y")), px + 104, py + 76)
     end
 
     love.graphics.setFont(fonts.small)
@@ -1571,22 +2288,8 @@ local function drawProfileModal(sw, sh)
     love.graphics.setColor(ui.textMain)
     love.graphics.print(I18N.t("profile_achievements"), px + 30, py + 356)
 
-    local achList = {
-        { id = "first_win",      icon = "★", key = "ach_first_win",      desc = "ach_desc_first_win" },
-        { id = "diag_3d",        icon = "❖", key = "ach_3d_diag",        desc = "ach_desc_3d_diag" },
-        { id = "veteran",        icon = "10", key = "ach_veteran",       desc = "ach_desc_veteran" },
-        { id = "bot_easy",       icon = "B1", key = "ach_bot_easy",      desc = "ach_desc_bot_easy" },
-        { id = "bot_medium",     icon = "B2", key = "ach_bot_medium",    desc = "ach_desc_bot_medium" },
-        { id = "bot_hard",       icon = "B3", key = "ach_bot_hard",      desc = "ach_desc_bot_hard" },
-        { id = "wins_10",        icon = "W10", key = "ach_wins_10",      desc = "ach_desc_wins_10" },
-        { id = "wins_100",       icon = "W100", key = "ach_wins_100",    desc = "ach_desc_wins_100" },
-        { id = "wins_1000",      icon = "1K", key = "ach_wins_1000",     desc = "ach_desc_wins_1000" },
-        { id = "first_friend",   icon = "F1", key = "ach_first_friend",  desc = "ach_desc_first_friend" },
-        { id = "pioneer_1000",   icon = "#1K", key = "ach_pioneer_1000", desc = "ach_desc_pioneer_1000" },
-        { id = "tournament_win", icon = "🏆", key = "ach_tournament_win", desc = "ach_desc_tournament_win" }
-    }
     local earnedAchs = {}
-    for _, a in ipairs(achList) do
+    for _, a in ipairs(ACHIEVEMENTS_META) do
         if p.achievements and p.achievements[a.id] then
             table.insert(earnedAchs, a)
         end
@@ -1621,7 +2324,7 @@ local function drawProfileModal(sw, sh)
     end
 
     if selectedAchievementId then
-        for _, a in ipairs(achList) do
+        for _, a in ipairs(ACHIEVEMENTS_META) do
             if a.id == selectedAchievementId then
                 love.graphics.setColor(ui.bgClear)
                 love.graphics.rectangle("fill", px + 30, py + 430, pw - 60, 28, 6, 6)
@@ -1632,81 +2335,139 @@ local function drawProfileModal(sw, sh)
         end
     end
 
-    -- Friends & Requests Section
+    -- Friends & Requests Section (Registered accounts only, max 50 friends)
     local fy = py + 464
     love.graphics.setColor(ui.bgClear)
     love.graphics.rectangle("fill", px + 30, fy, pw - 60, 86, 8, 8)
     love.graphics.setColor(ui.panelBorder)
     love.graphics.rectangle("line", px + 30, fy, pw - 60, 86, 8, 8)
 
-    love.graphics.setFont(fonts.small)
-    love.graphics.setColor(ui.textMain)
-    love.graphics.print(I18N.t("friends_title") .. " (" .. tostring(#(p.friends or {})) .. ")", px + 42, fy + 8)
+    if not p.isRegistered then
+        love.graphics.setFont(fonts.small)
+        love.graphics.setColor(ui.textSub)
+        love.graphics.printf(I18N.t("friends_reg_only"), px + 44, fy + 34, pw - 88, "center")
+    else
+        love.graphics.setFont(fonts.small)
+        love.graphics.setColor(ui.textMain)
+        love.graphics.print(I18N.t("friends_title") .. " (" .. tostring(#(p.friends or {})) .. "/50)", px + 42, fy + 8)
 
-    -- Search input + Add button
-    love.graphics.setColor(ui.panelBg)
-    love.graphics.rectangle("fill", px + 160, fy + 6, 170, 24, 5, 5)
-    love.graphics.setColor(ui.panelBorder)
-    love.graphics.rectangle("line", px + 160, fy + 6, 170, 24, 5, 5)
-    love.graphics.setColor(friendSearchText ~= "" and ui.textMain or ui.textSub)
-    love.graphics.print(friendSearchText ~= "" and friendSearchText or I18N.t("friend_search"), px + 166, fy + 10)
-    drawButton("friend_add_btn", px + 338, fy + 6, 86, 24, I18N.t("friend_add"), {
-        font = fonts.small,
-        onClick = function()
-            Sound.play("click")
-            if #friendSearchText >= 3 then
-                Config.sendFriendRequest(friendSearchText)
-                friendSearchText = ""
-                Storage.save()
+        -- Search input + Add button + Open All Friends button
+        love.graphics.setColor(ui.panelBg)
+        love.graphics.rectangle("fill", px + 178, fy + 6, 160, 24, 5, 5)
+        love.graphics.setColor(ui.panelBorder)
+        love.graphics.rectangle("line", px + 178, fy + 6, 160, 24, 5, 5)
+        love.graphics.setColor(friendSearchText ~= "" and ui.textMain or ui.textSub)
+        love.graphics.print(friendSearchText ~= "" and friendSearchText or I18N.t("friend_search"), px + 184, fy + 10)
+        table.insert(uiButtons, {
+            id = "prof_friend_search_focus",
+            x = px + 178, y = fy + 6, w = 160, h = 24,
+            onClick = function() pcall(love.keyboard.setTextInput, true) end
+        })
+
+        drawButton("friend_add_btn", px + 344, fy + 6, 84, 24, I18N.t("friend_add"), {
+            font = fonts.small,
+            onClick = function()
+                Sound.play("click")
+                if #friendSearchText >= 3 then
+                    local okAdd, errKey = Config.sendFriendRequest(friendSearchText)
+                    if okAdd then
+                        friendSearchText = ""
+                        friendStatusFeedback = nil
+                    else
+                        friendStatusFeedback = I18N.t(errKey or "friend_not_found")
+                    end
+                    Storage.save()
+                    refreshFriendsState()
+                end
+            end
+        })
+        drawButton("friend_open_all_btn", px + pw - 160, fy + 6, 118, 24, I18N.t("friend_open_all"), {
+            accent = true,
+            font = fonts.small,
+            onClick = function()
+                Sound.play("click")
+                friendGameUI.view = friendGameUI.room and "lobby" or "list"
+                friendGameUI.errorMsg = nil
+                refreshFriendsState()
+                currentScreen = "friend_game_modal"
+            end
+        })
+
+        if friendStatusFeedback then
+            love.graphics.setFont(fonts.small)
+            love.graphics.setColor(0.95, 0.42, 0.38, 1.0)
+            love.graphics.print(friendStatusFeedback, px + 436, fy + 10)
+        end
+
+        -- Unified Requests + Friends quick row
+        local combinedRequests = {}
+        for _, name in ipairs(p.incomingRequests or {}) do
+            table.insert(combinedRequests, { name = name, dir = "in" })
+        end
+        for _, name in ipairs(p.sentRequests or {}) do
+            table.insert(combinedRequests, { name = name, dir = "out" })
+        end
+
+        local fx = px + 42
+        for idx, req in ipairs(combinedRequests) do
+            if idx <= 2 then
+                love.graphics.setColor(ui.textSub)
+                love.graphics.print(req.name .. (req.dir == "out" and " (" .. I18N.t("friend_pending") .. ")" or ""), fx, fy + 38)
+                if req.dir == "in" then
+                    drawButton("freq_acc_" .. idx, fx + 110, fy + 34, 62, 22, I18N.t("friend_accept"), {
+                        font = fonts.small, primary = true,
+                        onClick = function()
+                            Sound.play("click")
+                            local okA, errA = Config.acceptFriendRequest(req.name)
+                            if not okA and errA then friendStatusFeedback = I18N.t(errA) end
+                            Storage.save()
+                            refreshFriendsState()
+                        end
+                    })
+                    drawButton("freq_dec_" .. idx, fx + 176, fy + 34, 62, 22, I18N.t("friend_decline"), {
+                        font = fonts.small,
+                        onClick = function()
+                            Sound.play("click")
+                            Config.declineFriendRequest(req.name)
+                            Storage.save()
+                            refreshFriendsState()
+                        end
+                    })
+                end
+                fx = fx + 250
             end
         end
-    })
 
-    -- Unified Requests + Friends quick row
-    local combinedRequests = {}
-    for _, name in ipairs(p.incomingRequests or {}) do
-        table.insert(combinedRequests, { name = name, dir = "in" })
-    end
-    for _, name in ipairs(p.sentRequests or {}) do
-        table.insert(combinedRequests, { name = name, dir = "out" })
-    end
+        for idx, fn in ipairs(p.friends or {}) do
+            if idx <= 2 then
+                local fyRow = fy + 60
+                local fxRow = px + 42 + (idx - 1) * 395
+                local pres = friendStatusCache[fn:lower()] or {}
+                local isOnline = select(1, formatLastSeen(pres.ts, pres.inGame))
+                love.graphics.setColor(isOnline and { 0.22, 0.88, 0.45, 1.0 } or { 0.48, 0.52, 0.58, 1.0 })
+                love.graphics.circle("fill", fxRow + 5, fyRow + 10, 4.5)
 
-    local fx = px + 42
-    for idx, req in ipairs(combinedRequests) do
-        if idx <= 2 then
-            love.graphics.setColor(ui.textSub)
-            love.graphics.print(req.name .. (req.dir == "out" and " (" .. I18N.t("friend_pending") .. ")" or ""), fx, fy + 38)
-            if req.dir == "in" then
-                drawButton("freq_acc_" .. idx, fx + 110, fy + 34, 62, 22, I18N.t("friend_accept"), {
-                    font = fonts.small, primary = true,
-                    onClick = function() Sound.play("click"); Config.acceptFriendRequest(req.name); Storage.save() end
-                })
-                drawButton("freq_dec_" .. idx, fx + 176, fy + 34, 62, 22, I18N.t("friend_decline"), {
+                love.graphics.setFont(fonts.small)
+                love.graphics.setColor(ui.textMain)
+                love.graphics.print(fn, fxRow + 15, fyRow + 3)
+
+                drawButton("fr_prof_" .. idx, fxRow + 125, fyRow, 76, 20, I18N.t("friend_profile_title"), {
                     font = fonts.small,
-                    onClick = function() Sound.play("click"); Config.declineFriendRequest(req.name); Storage.save() end
+                    onClick = function() Sound.play("click"); openFriendProfile(fn, "profile_modal") end
+                })
+                drawButton("fr_play_" .. idx, fxRow + 205, fyRow, 74, 20, I18N.t("friend_challenge"), {
+                    font = fonts.small, primary = true,
+                    onClick = function() Sound.play("click"); startFriendRoomLobby(fn) end
+                })
+                drawButton("fr_rem_" .. idx, fxRow + 283, fyRow, 32, 20, "X", {
+                    font = fonts.small,
+                    onClick = function() Sound.play("click"); Config.removeFriend(fn); Storage.save(); refreshFriendsState() end
+                })
+                drawButton("fr_blk_" .. idx, fxRow + 319, fyRow, 64, 20, I18N.t("friend_block"), {
+                    font = fonts.small,
+                    onClick = function() Sound.play("click"); Config.blockUser(fn); Storage.save(); refreshFriendsState() end
                 })
             end
-            fx = fx + 250
-        end
-    end
-    for idx, fn in ipairs(p.friends or {}) do
-        if idx <= 3 then
-            local fyRow = fy + 60
-            local fxRow = px + 42 + (idx - 1) * 265
-            love.graphics.setColor(ui.textMain)
-            love.graphics.print("• " .. fn, fxRow, fyRow + 2)
-            drawButton("fr_play_" .. idx, fxRow + 95, fyRow, 52, 20, I18N.t("friend_challenge"), {
-                font = fonts.small, primary = true,
-                onClick = function() Sound.play("click"); startNewGame(Config.GameMode.ONLINE) end
-            })
-            drawButton("fr_rem_" .. idx, fxRow + 150, fyRow, 48, 20, "X", {
-                font = fonts.small,
-                onClick = function() Sound.play("click"); Config.removeFriend(fn); Storage.save() end
-            })
-            drawButton("fr_blk_" .. idx, fxRow + 202, fyRow, 52, 20, I18N.t("friend_block"), {
-                font = fonts.small,
-                onClick = function() Sound.play("click"); Config.blockUser(fn); Storage.save() end
-            })
         end
     end
 
@@ -2175,10 +2936,6 @@ local function drawShopScreen(sw, sh)
     local btnH = 44
 
     if shopTab == "pieces" then
-        love.graphics.setFont(fonts.small)
-        love.graphics.setColor(ui.textSub)
-        love.graphics.printf(I18N.t("swipe_hint"), 0, 94, sw, "center")
-
         for i, skinId in ipairs(Config.pieceSkinOrder) do
             local skin = Config.pieceSkins[skinId]
             if skin then
@@ -2335,10 +3092,6 @@ local function drawShopScreen(sw, sh)
         end
 
     elseif shopTab == "board" then
-        love.graphics.setFont(fonts.small)
-        love.graphics.setColor(ui.textSub)
-        love.graphics.printf(I18N.t("swipe_hint"), 0, 94, sw, "center")
-
         local c1x = 64 - shopScrollX
         local halfH = (cardH - 16) * 0.5
         local curBoardSkin = Config.getBoardSkin()
@@ -2532,10 +3285,6 @@ local function drawShopScreen(sw, sh)
         end
 
     elseif shopTab == "themes" then
-        love.graphics.setFont(fonts.small)
-        love.graphics.setColor(ui.textSub)
-        love.graphics.printf(I18N.t("swipe_hint"), 0, 94, sw, "center")
-
         for i, themeId in ipairs(Config.uiThemeOrder) do
             local th = Config.uiThemes[themeId]
             local cx = 64 + (i - 1) * (cardW + cardGap) - shopScrollX
@@ -2788,26 +3537,31 @@ local function drawCleanGameHUD(sw, sh)
         end
     end
 
-    -- Кнопка / значок выхода в главное меню прямо под списком ходов
-    local exitY = ly + logH + 10
-    local exitH = 38
-    drawButton("hud_main_menu", lx, exitY, logW, exitH, "  " .. I18N.t("main_menu"), {
-        font = fonts.small,
-        onClick = function()
-            Sound.play("click")
-            isReplayMode = false
-            currentScreen = "menu"
+    -- Кнопка выхода в главное меню появляется под списком ходов только в конце партии и если окно победы скрыто
+    if gameLogic.isGameOver and not activeDrop and hideWinModal then
+        local exitY = ly + logH + 10
+        local exitH = 38
+        drawButton("hud_main_menu", lx, exitY, logW, exitH, "  " .. I18N.t("main_menu"), {
+            font = fonts.small,
+            onClick = function()
+                Sound.play("click")
+                isReplayMode = false
+                if localOnlineRoom then
+                    Firebase.closeFriendRoom(localOnlineRoom.code)
+                    localOnlineRoom = nil
+                end
+                currentScreen = "menu"
+            end
+        })
+        do
+            local ix, iy = lx + 16, exitY + 10
+            love.graphics.setColor(ui.textMain)
+            love.graphics.setLineWidth(1.8)
+            love.graphics.line(ix + 8, iy, ix, iy, ix, iy + 18, ix + 8, iy + 18)
+            love.graphics.line(ix + 5, iy + 9, ix + 15, iy + 9)
+            love.graphics.line(ix + 11, iy + 5, ix + 15, iy + 9, ix + 11, iy + 13)
+            love.graphics.setLineWidth(1)
         end
-    })
-    -- Чёткая векторная иконка двери/выхода слева на кнопке
-    do
-        local ix, iy = lx + 16, exitY + 10
-        love.graphics.setColor(ui.textMain)
-        love.graphics.setLineWidth(1.8)
-        love.graphics.line(ix + 8, iy, ix, iy, ix, iy + 18, ix + 8, iy + 18)
-        love.graphics.line(ix + 5, iy + 9, ix + 15, iy + 9)
-        love.graphics.line(ix + 11, iy + 5, ix + 15, iy + 9, ix + 11, iy + 13)
-        love.graphics.setLineWidth(1)
     end
 
     -- 3. CENTER SCREEN POPUP AFTER VICTORY / DRAW (Toggle with F / А or [X] to inspect board!)
@@ -2881,6 +3635,10 @@ local function drawCleanGameHUD(sw, sh)
             drawButton("win_menu", px + pw - 243, py + ph - 66, 205, 46, I18N.t("main_menu"), {
                 onClick = function()
                     Sound.play("click")
+                    if localOnlineRoom then
+                        Firebase.closeFriendRoom(localOnlineRoom.code)
+                        localOnlineRoom = nil
+                    end
                     currentScreen = "menu"
                 end
             })
@@ -2977,6 +3735,10 @@ function love.draw()
                 drawRulesModal(sw, sh)
             elseif currentScreen == "tournament_modal" then
                 drawTournamentModal(sw, sh)
+            elseif currentScreen == "friend_game_modal" then
+                drawFriendGameModal(sw, sh)
+            elseif currentScreen == "friend_profile_modal" then
+                drawFriendProfileModal(sw, sh)
             end
         end
         love.graphics.pop()
@@ -3203,6 +3965,9 @@ function love.wheelmoved(wx, wy)
     elseif currentScreen == "profile_modal" and wy ~= 0 then
         local maxScroll = math.max(0, #Config.profile.recentMatches - 4)
         profileMatchScroll = math.max(0, math.min(maxScroll, profileMatchScroll - (wy > 0 and 1 or -1)))
+    elseif currentScreen == "friend_game_modal" and friendGameUI.view == "list" and wy ~= 0 then
+        local maxScroll = math.max(0, #(Config.profile.friends or {}) - 6)
+        friendGameUI.listScroll = math.max(0, math.min(maxScroll, (friendGameUI.listScroll or 0) - (wy > 0 and 1 or -1)))
     elseif currentScreen == "rules_modal" and wy ~= 0 then
         rulesScrollOffset = math.max(0, rulesScrollOffset - wy * 34)
     elseif currentScreen == "shop" and wy ~= 0 then
@@ -3221,8 +3986,22 @@ function love.textinput(text)
         return
     end
     if currentScreen == "profile_modal" then
-        if #friendSearchText < 12 and text:match("^[a-zA-Z0-9_]+$") then
+        if Config.profile.isRegistered and #friendSearchText < 12 and text:match("^[a-zA-Z0-9_]+$") then
             friendSearchText = friendSearchText .. text
+        end
+        return
+    end
+    if currentScreen == "friend_game_modal" then
+        if friendGameUI.view == "join" then
+            if #friendGameUI.joinCode < 6 and text:match("^[a-zA-Z0-9]+$") then
+                friendGameUI.joinCode = friendGameUI.joinCode .. text:upper()
+                friendGameUI.errorMsg = nil
+            end
+        elseif friendGameUI.view == "list" and Config.profile.isRegistered then
+            if #friendSearchText < 12 and text:match("^[a-zA-Z0-9_]+$") then
+                friendSearchText = friendSearchText .. text
+                friendStatusFeedback = nil
+            end
         end
         return
     end
@@ -3274,7 +4053,17 @@ function love.keypressed(key, scancode)
         return
     end
     if currentScreen == "profile_modal" and key == "backspace" then
-        friendSearchText = friendSearchText:sub(1, math.max(0, #friendSearchText - 1))
+        if Config.profile.isRegistered then
+            friendSearchText = friendSearchText:sub(1, math.max(0, #friendSearchText - 1))
+        end
+        return
+    end
+    if currentScreen == "friend_game_modal" and key == "backspace" then
+        if friendGameUI.view == "join" then
+            friendGameUI.joinCode = friendGameUI.joinCode:sub(1, math.max(0, #friendGameUI.joinCode - 1))
+        elseif friendGameUI.view == "list" and Config.profile.isRegistered then
+            friendSearchText = friendSearchText:sub(1, math.max(0, #friendSearchText - 1))
+        end
         return
     end
     if currentScreen == "lan_modal" and lanIpFocused then
@@ -3383,6 +4172,15 @@ function love.keypressed(key, scancode)
         elseif currentScreen == "lan_modal" then
             LAN.stop()
             lanIpFocused = false
+            currentScreen = "online_modal"
+        elseif currentScreen == "friend_profile_modal" then
+            selectedAchievementId = nil
+            currentScreen = friendProfileReturnScreen or "profile_modal"
+        elseif currentScreen == "friend_game_modal" then
+            if friendGameUI.room then
+                Firebase.closeFriendRoom(friendGameUI.room.code)
+                friendGameUI.room = nil
+            end
             currentScreen = "online_modal"
         elseif currentScreen ~= "menu" then
             LAN.stop()

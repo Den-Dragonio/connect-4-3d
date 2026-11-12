@@ -314,8 +314,8 @@ local Config = {
             nameKey = "skin_emerald",
             style = "wood",
             rarity = "common",
-            player1Color = { 0.94, 0.78, 0.26, 1.0 },
-            player2Color = { 0.12, 0.52, 0.34, 1.0 },
+            player1Color = { 0.95, 0.56, 0.12, 1.0 }, -- Rich Warm Amber
+            player2Color = { 0.12, 0.52, 0.34, 1.0 }, -- Emerald Green
             woodStrength = 0.60,
             specular = 0.50,
             unlocked = false,
@@ -692,6 +692,7 @@ function Config.registerAccount(username, password, confirmPassword)
     end
 
     local userNum = FirebaseClient.claimNextUserNumber()
+    local nowTs = os.time()
     local newAcc = {
         username               = username,
         password               = password,
@@ -700,7 +701,9 @@ function Config.registerAccount(username, password, confirmPassword)
         customAvatarFile       = nil,
         isRegistered           = true,
         userNumber             = userNum,
-        lastUsernameChangeTime = os.time(),
+        createdAt              = nowTs,
+        createdAtStr           = os.date("%d.%m.%Y", nowTs),
+        lastUsernameChangeTime = nowTs,
         rating                 = 800,
         ratingHistory          = { 800 },
         ratings                = { std_bullet = 800, std_blitz = 800, free_bullet = 800, free_blitz = 800 },
@@ -758,10 +761,12 @@ function Config.loginAccount(username, password)
             customAvatarFile       = nil,
             isRegistered           = true,
             userNumber             = remoteProf.userNumber or 9999,
+            createdAt              = (remoteProf.createdAt and remoteProf.createdAt > 0) and remoteProf.createdAt or os.time(),
+            createdAtStr           = (remoteProf.createdAtStr and #remoteProf.createdAtStr > 0) and remoteProf.createdAtStr or os.date("%d.%m.%Y"),
             lastUsernameChangeTime = remoteProf.lastUsernameChangeTime or 0,
             rating                 = remoteProf.rating or 800,
             ratingHistory          = { 800, remoteProf.rating or 800 },
-            ratings                = { std_bullet = 800, std_blitz = remoteProf.rating or 800, free_bullet = 800, free_blitz = 800 },
+            ratings                = remoteProf.ratings or { std_bullet = 800, std_blitz = remoteProf.rating or 800, free_bullet = 800, free_blitz = 800 },
             ratingHistories        = { std_bullet = { 800 }, std_blitz = { 800, remoteProf.rating or 800 }, free_bullet = { 800 }, free_blitz = { 800 } },
             gamesPlayed            = remoteProf.gamesPlayed or 0,
             wins                   = remoteProf.wins or 0,
@@ -873,6 +878,14 @@ function Config.ensureProfileFields(p)
     p.blockedUsers      = p.blockedUsers or {}
     p.tournamentHistory = p.tournamentHistory or {}
     p.achievements      = p.achievements or {}
+    if p.isRegistered then
+        if not p.createdAt or p.createdAt <= 0 then
+            p.createdAt = os.time()
+        end
+        if not p.createdAtStr or p.createdAtStr == "" then
+            p.createdAtStr = os.date("%d.%m.%Y", p.createdAt)
+        end
+    end
 end
 
 function Config.getEloKey(ruleMode, timeMinutes)
@@ -1074,10 +1087,15 @@ function Config.findUserByUsername(username)
     return nil
 end
 
+Config.MAX_FRIENDS = 50
+
 function Config.sendFriendRequest(targetName)
     local p = Config.profile
     if not p.isRegistered then return false, "err_need_register" end
     Config.ensureProfileFields(p)
+    if #(p.friends or {}) >= Config.MAX_FRIENDS then
+        return false, "err_friends_limit"
+    end
     if not targetName or targetName == "" or targetName:lower() == p.username:lower() then
         return false, "friend_not_found"
     end
@@ -1097,6 +1115,9 @@ function Config.sendFriendRequest(targetName)
     if listContains(target.blockedUsers or {}, p.username) then
         return false, "friend_blocked"
     end
+    if #(target.friends or {}) >= Config.MAX_FRIENDS then
+        return false, "err_friends_limit"
+    end
     table.insert(p.sentRequests, 1, target.username)
     if Config.registeredAccounts[target.username] then
         Config.ensureProfileFields(Config.registeredAccounts[target.username])
@@ -1104,34 +1125,41 @@ function Config.sendFriendRequest(targetName)
             table.insert(Config.registeredAccounts[target.username].incomingRequests, 1, p.username)
         end
     end
+    FirebaseClient.sendFriendRequestRemote(p.username, target.username)
     return true, "friend_req_sent"
 end
 
 function Config.acceptFriendRequest(fromName)
     local p = Config.profile
+    if not p.isRegistered then return false, "err_need_register" end
     Config.ensureProfileFields(p)
+    if #(p.friends or {}) >= Config.MAX_FRIENDS and not listContains(p.friends, fromName) then
+        return false, "err_friends_limit"
+    end
     local idx = listContains(p.incomingRequests, fromName)
     if idx then table.remove(p.incomingRequests, idx) end
     if not listContains(p.friends, fromName) then
         table.insert(p.friends, 1, fromName)
     end
-    if p.isRegistered then
-        p.achievements.first_friend = true
-    end
+    p.achievements.first_friend = true
     local other = Config.registeredAccounts[fromName]
     if other then
         Config.ensureProfileFields(other)
         local sIdx = listContains(other.sentRequests, p.username)
         if sIdx then table.remove(other.sentRequests, sIdx) end
-        if not listContains(other.friends, p.username) then
+        if #(other.friends or {}) < Config.MAX_FRIENDS and not listContains(other.friends, p.username) then
             table.insert(other.friends, 1, p.username)
         end
         other.achievements.first_friend = true
     end
+    FirebaseClient.acceptFriendRequestRemote(p.username, fromName)
+    FirebaseClient.syncProfile(p.username, p)
+    return true, nil
 end
 
 function Config.declineFriendRequest(fromName)
     local p = Config.profile
+    if not p.isRegistered then return false, "err_need_register" end
     Config.ensureProfileFields(p)
     local idx = listContains(p.incomingRequests, fromName)
     if idx then table.remove(p.incomingRequests, idx) end
@@ -1141,10 +1169,13 @@ function Config.declineFriendRequest(fromName)
         local sIdx = listContains(other.sentRequests, p.username)
         if sIdx then table.remove(other.sentRequests, sIdx) end
     end
+    FirebaseClient.declineFriendRequestRemote(p.username, fromName)
+    return true, nil
 end
 
 function Config.removeFriend(targetName)
     local p = Config.profile
+    if not p.isRegistered then return false, "err_need_register" end
     Config.ensureProfileFields(p)
     local idx = listContains(p.friends, targetName)
     if idx then table.remove(p.friends, idx) end
@@ -1154,10 +1185,40 @@ function Config.removeFriend(targetName)
         local oIdx = listContains(other.friends, p.username)
         if oIdx then table.remove(other.friends, oIdx) end
     end
+    FirebaseClient.removeFriendRemote(p.username, targetName)
+    return true, nil
+end
+
+function Config.syncIncomingFriendMailbox()
+    local p = Config.profile
+    if not p.isRegistered then return {} end
+    Config.ensureProfileFields(p)
+    local box = FirebaseClient.pollFriendBox(p.username)
+    for _, fromName in ipairs(box.incoming or {}) do
+        if not listContains(p.blockedUsers, fromName)
+           and not listContains(p.friends, fromName)
+           and not listContains(p.incomingRequests, fromName) then
+            table.insert(p.incomingRequests, 1, fromName)
+        end
+    end
+    for _, accName in ipairs(box.accepted or {}) do
+        local sIdx = listContains(p.sentRequests, accName)
+        if sIdx then table.remove(p.sentRequests, sIdx) end
+        if #(p.friends or {}) < Config.MAX_FRIENDS and not listContains(p.friends, accName) then
+            table.insert(p.friends, 1, accName)
+            p.achievements.first_friend = true
+        end
+    end
+    for _, remName in ipairs(box.removed or {}) do
+        local fIdx = listContains(p.friends, remName)
+        if fIdx then table.remove(p.friends, fIdx) end
+    end
+    return box.invites or {}
 end
 
 function Config.blockUser(targetName)
     local p = Config.profile
+    if not p.isRegistered then return false, "err_need_register" end
     Config.ensureProfileFields(p)
     Config.removeFriend(targetName)
     Config.declineFriendRequest(targetName)

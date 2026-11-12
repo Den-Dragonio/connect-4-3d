@@ -518,6 +518,26 @@ function love.load()
         renderer:renderScene(800, 600, {
             config = Config, logic = gameLogic, maxPly = 0, showCoords = true, coordFont = fonts.coord
         })
+
+        -- Проверка полного стека gy=1..4, победы и HUD-экрана для 3D-скинов (pine_tree, snowman)
+        gameLogic:reset()
+        gameLogic:dropPiece(1, 1); gameLogic:dropPiece(2, 1)
+        gameLogic:dropPiece(1, 1); gameLogic:dropPiece(2, 1)
+        gameLogic:dropPiece(1, 1); gameLogic:dropPiece(2, 1)
+        local winRes = gameLogic:dropPiece(1, 1)
+        assert(winRes and winRes.ok and gameLogic.isGameOver, "Expected vertical win in CI test")
+        currentScreen = "game"
+        for _, skinId in ipairs({ "pine_tree", "snowman", "classic_bw" }) do
+            Config.activePieceSkin = skinId
+            hideWinModal = false
+            love.draw()
+            hideWinModal = true
+            love.draw()
+        end
+        currentScreen = "shop"
+        love.draw()
+        gameLogic:reset()
+        currentScreen = "menu"
         print("[CI-TEST] ALL TESTS PASSED SUCCESSFULLY!")
         love.event.quit(0)
     end

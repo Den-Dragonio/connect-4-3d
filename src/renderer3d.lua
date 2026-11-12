@@ -1570,7 +1570,7 @@ function Renderer3D:renderScene(screenW, screenH, state)
 
             -- Золотая 3D-звезда на макушке собранной ёлки (gy == 4)
             if pieceSkin.style == "pine" and gy == 4 and not overrideAlpha then
-                local sa = math.rad(35) + self.time * 0.75
+                local sa = math.rad(35) + love.timer.getTime() * 0.75
                 local cS, sS = math.cos(sa), math.sin(sa)
                 self:_drawMeshTransform(
                     self.meshStar,

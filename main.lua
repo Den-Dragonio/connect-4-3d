@@ -90,6 +90,7 @@ end
 
 -- Gameplay state
 local hoveredX, hoveredZ, hoveredY = nil, nil, nil
+local lastHoverMouseX, lastHoverMouseY = nil, nil
 local isReplayMode = false
 local replaySourceMatch = nil
 local matchmakingState = { active = false, timer = 0, statsTimer = 0 }
@@ -735,6 +736,7 @@ function love.load()
             blackPieceSkin = Config.pieceSkins.crimson_cobalt,
             boardSkinOverride = Config.boardSkins.manhattan
         })
+        assert(gameLogic.isGameOver == false and gameLogic.winner == BoardLogic.Player.NONE, "Expected ongoing free-mode game before win")
 
         -- Проверка полного стека gy=1..4, победы и HUD-экрана для 3D-скинов (pine_tree, snowman)
         gameLogic:reset("standard")
@@ -772,6 +774,21 @@ function love.load()
         currentScreen = "menu"
         print("[CI-TEST] ALL TESTS PASSED SUCCESSFULLY!")
         love.event.quit(0)
+    end
+end
+
+local function refreshBoardHover(sw, sh, mx, my)
+    if isTouchDevice then return end
+    if currentScreen == "game" and not isReplayMode and not gameLogic.isGameOver and not activeDrop and isLocalPlayerTurn() and not mouseState.dragged then
+        local _, wPS, bPS = getMatchRenderSkins()
+        local curPS = (gameLogic.currentPlayer == 1) and (wPS or Config.getPieceSkin()) or (bPS or Config.getPieceSkin())
+        local nx, nz, ny = renderer:pickPegAtScreenPos(mx, my, sw, sh, gameLogic, 0.0, 0.04, curPS)
+        if (nx ~= hoveredX or nz ~= hoveredZ or ny ~= hoveredY) and nx ~= nil then
+            Sound.play("hover")
+        end
+        hoveredX, hoveredZ, hoveredY = nx, nz, ny
+    else
+        hoveredX, hoveredZ, hoveredY = nil, nil, nil
     end
 end
 
@@ -965,17 +982,10 @@ function love.update(dt)
     -- Raycast hover on pegs (on desktop mouse mode; on touch devices 1st tap sets hoveredX/Z)
     if not isTouchDevice then
         local mx, my = love.mouse.getPosition()
-        if not isReplayMode and not gameLogic.isGameOver and not activeDrop and isLocalPlayerTurn() and not mouseState.dragged then
-            local _, wPS, bPS = getMatchRenderSkins()
-            local curPS = (gameLogic.currentPlayer == 1) and (wPS or Config.getPieceSkin()) or (bPS or Config.getPieceSkin())
-            local nx, nz, ny = renderer:pickPegAtScreenPos(mx, my, sw, sh, gameLogic, 0.0, 0.04, curPS)
-            if (nx ~= hoveredX or nz ~= hoveredZ or ny ~= hoveredY) and nx ~= nil then
-                Sound.play("hover")
-            end
-            hoveredX, hoveredZ, hoveredY = nx, nz, ny
-        else
-            hoveredX, hoveredZ, hoveredY = nil, nil, nil
+        if lastHoverMouseX and lastHoverMouseY then
+            mx, my = lastHoverMouseX, lastHoverMouseY
         end
+        refreshBoardHover(sw, sh, mx, my)
     end
 end
 
@@ -3636,6 +3646,16 @@ local function drawCleanGameHUD(sw, sh)
         love.graphics.printf(turnStr, bx + 54, by + 16, bannerW - 70, "center")
     end
 
+    if gameLogic.ruleMode == "free" then
+        local modeW = 186
+        local mxPill = (sw - modeW) * 0.5
+        local myPill = by + bannerH + 6
+        drawPanel(mxPill, myPill, modeW, 24)
+        love.graphics.setFont(fonts.small)
+        love.graphics.setColor(ui.accentText)
+        love.graphics.printf(I18N.t("rule_free"), mxPill + 6, myPill + 4, modeW - 12, "center")
+    end
+
     -- 2. TOP-RIGHT: Scrollable Chess-Style Move Log (1. a1.1   b2.1) + Arrow Rewind Indicator
     local logW, logH = 225, 250
     local lx, ly = sw - logW - 18, 14
@@ -3876,25 +3896,26 @@ local function drawCleanGameHUD(sw, sh)
 end
 
 local manhattanStars = nil
+local manhattanSkyMesh = nil
 local function ensureManhattanStars()
     if manhattanStars then return manhattanStars end
     manhattanStars = {}
-    for i = 1, 95 do
+    for i = 1, 64 do
         local s1 = math.abs(math.sin(i * 12.9898 + 4.1414)) * 43758.5453
         local s2 = math.abs(math.sin(i * 78.233 + 1.7182)) * 28461.9137
         local s3 = math.abs(math.sin(i * 39.425 + 9.1351)) * 15926.5359
         local fx = s1 - math.floor(s1)
-        local fy = (s2 - math.floor(s2)) * 0.72 -- Верхние 72% неба над тучами
+        local fy = (s2 - math.floor(s2)) * 0.68 -- Верхние 68% ночного неба
         local fr = s3 - math.floor(s3)
         local tint = (i % 5 == 0) and { 0.80, 0.88, 1.00 }
                   or ((i % 7 == 0) and { 1.00, 0.94, 0.78 } or { 0.94, 0.96, 1.00 })
         table.insert(manhattanStars, {
             x = fx,
             y = fy,
-            r = 0.8 + fr * 1.45,
+            sz = 1.4 + fr * 2.0,
             baseA = 0.35 + fr * 0.60,
             phase = i * 0.73,
-            bright = (fr > 0.84),
+            bright = (fr > 0.82),
             col = tint
         })
     end
@@ -3902,19 +3923,19 @@ local function ensureManhattanStars()
 end
 
 local function drawManhattanNightSky(w, h, animateStars)
-    -- Вертикальный ночной градиент неба Манхэттена (тёмно-синяя ночь -> мягкая дымка у горизонта)
-    local bands = 14
-    local bandH = h / bands
-    for b = 0, bands - 1 do
-        local k = b / (bands - 1)
-        local r = 0.012 + k * 0.036
-        local g = 0.018 + k * 0.052
-        local bl = 0.045 + k * 0.115
-        love.graphics.setColor(r, g, bl, 1.0)
-        love.graphics.rectangle("fill", 0, b * bandH, w, bandH + 1)
+    -- 1 draw call: плавный ночной градиент неба, переходящий ровно в цвет горизонта бесконечных туч (0.036, 0.052, 0.118)
+    if not manhattanSkyMesh then
+        manhattanSkyMesh = love.graphics.newMesh({
+            { 0, 0, 0, 0, 0.012, 0.018, 0.045, 1.0 },
+            { 1, 0, 1, 0, 0.012, 0.018, 0.045, 1.0 },
+            { 1, 1, 1, 1, 0.036, 0.052, 0.118, 1.0 },
+            { 0, 1, 0, 1, 0.036, 0.052, 0.118, 1.0 }
+        }, "fan", "static")
     end
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.draw(manhattanSkyMesh, 0, 0, 0, w, h)
 
-    -- Звёзды
+    -- Быстрые звёзды
     local stars = ensureManhattanStars()
     local now = animateStars and love.timer.getTime() or 0.0
     for _, st in ipairs(stars) do
@@ -3922,11 +3943,11 @@ local function drawManhattanNightSky(w, h, animateStars)
         local a = st.baseA * tw
         local sx, sy = st.x * w, st.y * h
         love.graphics.setColor(st.col[1], st.col[2], st.col[3], a)
-        love.graphics.circle("fill", sx, sy, st.r)
+        love.graphics.rectangle("fill", sx - st.sz * 0.5, sy - st.sz * 0.5, st.sz, st.sz)
         if st.bright then
             love.graphics.setColor(st.col[1], st.col[2], st.col[3], a * 0.40)
-            love.graphics.rectangle("fill", sx - st.r * 2.4, sy - 0.6, st.r * 4.8, 1.2)
-            love.graphics.rectangle("fill", sx - 0.6, sy - st.r * 2.4, 1.2, st.r * 4.8)
+            love.graphics.rectangle("fill", sx - st.sz * 1.8, sy - 0.5, st.sz * 3.6, 1.0)
+            love.graphics.rectangle("fill", sx - 0.5, sy - st.sz * 1.8, 1.0, st.sz * 3.6)
         end
     end
 
@@ -3936,20 +3957,18 @@ local function drawManhattanNightSky(w, h, animateStars)
     local moonY = h * 0.16
     local moonR = math.max(22, math.min(w, h) * 0.050)
     love.graphics.setColor(0.55, 0.70, 0.98, 0.05)
-    love.graphics.circle("fill", moonX, moonY, moonR * 3.1)
-    love.graphics.setColor(0.68, 0.80, 1.00, 0.10)
-    love.graphics.circle("fill", moonX, moonY, moonR * 2.0)
+    love.graphics.circle("fill", moonX, moonY, moonR * 3.0)
+    love.graphics.setColor(0.68, 0.80, 1.00, 0.11)
+    love.graphics.circle("fill", moonX, moonY, moonR * 1.9)
     love.graphics.setColor(0.84, 0.90, 1.00, 0.18)
-    love.graphics.circle("fill", moonX, moonY, moonR * 1.38)
+    love.graphics.circle("fill", moonX, moonY, moonR * 1.36)
 
     love.graphics.setColor(0.94, 0.96, 0.99, 0.96)
     love.graphics.circle("fill", moonX, moonY, moonR)
-    -- Лёгкие лунные моря (кратеры)
     love.graphics.setColor(0.76, 0.81, 0.90, 0.36)
     love.graphics.circle("fill", moonX - moonR * 0.28, moonY - moonR * 0.16, moonR * 0.24)
     love.graphics.circle("fill", moonX + moonR * 0.22, moonY + moonR * 0.24, moonR * 0.19)
     love.graphics.circle("fill", moonX + moonR * 0.06, moonY - moonR * 0.36, moonR * 0.13)
-    -- Тёпло-синяя тень для выразительного рельефа серпа/полумесяца
     love.graphics.setColor(0.03, 0.05, 0.11, 0.24)
     love.graphics.circle("fill", moonX - moonR * 0.42, moonY - moonR * 0.12, moonR * 0.88)
 end
@@ -4101,11 +4120,16 @@ end
 function love.mousemoved(x, y, dx, dy, istouch)
     if not istouch then
         isTouchDevice = false
+        lastHoverMouseX, lastHoverMouseY = x, y
     end
     if pinchActive then return end
-    local sw, sh, uiScale = getUIScaleAndDims()
+    local sw, sh, uiScale, realW, realH = getUIScaleAndDims()
     local ux, uy = x / uiScale, y / uiScale
     local udx, udy = dx / uiScale, dy / uiScale
+
+    if not istouch and currentScreen == "game" and not mouseState.dragged then
+        refreshBoardHover(realW, realH, x, y)
+    end
 
     if mouseState.leftDown and not mouseState.dragged then
         local dist = math.sqrt((ux - mouseState.pressX)^2 + (uy - mouseState.pressY)^2)

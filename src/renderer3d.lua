@@ -124,6 +124,23 @@ local SHADER_PIXEL = [[
         return mix(rings, fibers, 0.32);
     }
 
+    float cloudHash2(vec2 p) {
+        p = fract(p * vec2(123.34, 456.21));
+        p += dot(p, p + 45.32);
+        return fract(p.x * p.y);
+    }
+
+    float cloudNoise2(vec2 p) {
+        vec2 i = floor(p);
+        vec2 f = fract(p);
+        f = f * f * (3.0 - 2.0 * f);
+        float a = cloudHash2(i);
+        float b = cloudHash2(i + vec2(1.0, 0.0));
+        float c = cloudHash2(i + vec2(0.0, 1.0));
+        float d = cloudHash2(i + vec2(1.0, 1.0));
+        return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+    }
+
     vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords) {
         vec3 N = normalize(v_normal);
         vec3 V = normalize(u_eyePos - v_worldPos);
@@ -304,8 +321,8 @@ local SHADER_PIXEL = [[
                 extraGlow += winTint * isLit * 0.68;
                 specFactor = mix(0.86, 0.18, isLit);
             }
-            vec3 nightHazeCol = vec3(0.045, 0.062, 0.120);
-            surfaceAlbedo = mix(surfaceAlbedo, nightHazeCol, lowMist * 0.92);
+            vec3 nightHazeCol = vec3(0.036, 0.052, 0.118);
+            surfaceAlbedo = mix(surfaceAlbedo, nightHazeCol, lowMist * 0.94);
             extraGlow *= (1.0 - lowMist * 0.95);
             specFactor *= (1.0 - lowMist);
             outAlpha *= (1.0 - smoothstep(-3.3, -7.8, v_worldPos.y));
@@ -377,22 +394,25 @@ local SHADER_PIXEL = [[
             extraGlow += surfaceAlbedo * 0.28;
             specFactor = 0.85;
         } else if (u_materialType > 17.5 && u_materialType < 18.5) {
-            // 18: Ночные облака и густой туман Манхэттена (единственная анимация в главном меню)
-            vec3 cp1 = vec3(v_worldPos.x * 0.36 + u_cloudTime * 0.22, v_worldPos.y * 0.72, v_worldPos.z * 0.36 + u_cloudTime * 0.11);
-            vec3 cp2 = vec3(v_worldPos.x * 0.82 - u_cloudTime * 0.14, v_worldPos.y * 1.18, v_worldPos.z * 0.82 + u_cloudTime * 0.17);
-            float cNoise = woodNoise3(cp1) * 0.65 + woodNoise3(cp2) * 0.35;
-            float radial = clamp(length(v_worldPos.xz) / 11.0, 0.0, 1.0);
-            float edgeFade = (abs(N.y) > 0.65)
-                ? smoothstep(1.0, 0.25, radial)
-                : pow(clamp(abs(dot(N, V)), 0.0, 1.0), 0.72);
-            float cloudDensity = smoothstep(0.18, 0.78, cNoise) * edgeFade;
-            vec3 cloudLow  = vec3(0.05, 0.07, 0.14);
-            vec3 cloudHigh = vec3(0.24, 0.32, 0.50);
-            float cityWarm = smoothstep(5.5, 0.6, length(v_worldPos.xz)) * 0.28;
-            vec3 cloudCol = mix(cloudLow, cloudHigh, smoothstep(0.28, 0.78, cNoise) * 0.70 + (N.y * 0.5 + 0.5) * 0.30);
-            cloudCol += vec3(0.34, 0.26, 0.16) * cityWarm * (0.40 + 0.60 * cNoise);
-            outAlpha = clamp(u_baseColor.a * (0.28 + 0.78 * cloudDensity), 0.0, 1.0);
-            return vec4(cloudCol + u_emissive * 0.45, outAlpha);
+            // 18: Бесконечный ночной туман/облака Манхэттена (быстрый 2D-шум, одно направление ветра, плавный уход в горизонт)
+            vec2 windDir = vec2(0.14, 0.06);
+            vec2 uv1 = v_worldPos.xz * 0.24 - windDir * u_cloudTime;
+            vec2 uv2 = v_worldPos.xz * 0.54 - windDir * (u_cloudTime * 1.45) + vec2(3.7, 8.2);
+            float n = cloudNoise2(uv1) * 0.66 + cloudNoise2(uv2) * 0.34;
+            float distCenter = length(v_worldPos.xz);
+            float horizonBlend = smoothstep(9.0, 32.0, distCenter);
+            vec3 horizonCol = vec3(0.036, 0.052, 0.118);
+            vec3 cloudDark  = vec3(0.046, 0.066, 0.136);
+            vec3 cloudLight = vec3(0.19, 0.26, 0.42);
+            float cityWarm = smoothstep(5.8, 0.6, distCenter) * 0.24;
+            vec3 col = mix(cloudDark, cloudLight, smoothstep(0.26, 0.78, n));
+            col += vec3(0.32, 0.24, 0.15) * cityWarm * (0.45 + 0.55 * n);
+            col = mix(col, horizonCol, horizonBlend * 0.92);
+            float wisps = smoothstep(0.24, 0.76, n);
+            float isLowerSea = step(1.70, -v_worldPos.y);
+            float layerA = mix(mix(0.14, 0.88, wisps), 0.98, isLowerSea);
+            outAlpha = clamp(u_baseColor.a * mix(layerA, 0.94, horizonBlend), 0.0, 1.0);
+            return vec4(col + u_emissive * 0.30, outAlpha);
         }
 
         vec3 L1 = normalize(vec3(0.55, 0.78, 0.48));
@@ -1815,7 +1835,7 @@ function Renderer3D:renderScene(screenW, screenH, state)
 
         -- Полупрозрачный предосмотр будущей фишки и уровня на штыре в режиме без гравитации (Вольный режим)
         if state.logic.ruleMode == "free" and state.hoveredX and state.hoveredZ and state.hoveredY
-           and not state.activeDrop and not isRewound and not state.logic.winner and not state.logic.isDraw then
+           and not state.activeDrop and not isRewound and not state.logic.isGameOver then
             if state.logic:canPlace(state.hoveredX, state.hoveredY, state.hoveredZ) then
                 local pSkin = (state.logic.currentPlayer == 1) and pieceSkinW or pieceSkinB
                 local gx, gy, gz = state.hoveredX, state.hoveredY, state.hoveredZ
@@ -1826,9 +1846,9 @@ function Renderer3D:renderScene(screenW, screenH, state)
                 self:_drawMeshTransform(
                     self.meshThinTorus,
                     { wx, wy, wz },
-                    { 1.38, 0, 0 }, { 0, 0.55, 0 }, { 0, 0, 1.38 },
-                    { 1.00, 0.90, 0.42, 0.55 },
-                    { 0.55, 0.44, 0.10 },
+                    { 1.16, 0, 0 }, { 0, 0.36, 0 }, { 0, 0, 1.16 },
+                    { 1.00, 0.90, 0.42, 0.26 },
+                    { 0.45, 0.36, 0.08 },
                     0.2, 0.0, 1.0, 0.0
                 )
                 love.graphics.setDepthMode("lequal", true)
@@ -1901,50 +1921,26 @@ function Renderer3D:renderScene(screenW, screenH, state)
         )
     end
 
-    -- 5b. Ночной густой туман и плывущие облака по низу небоскрёбов Манхэттена (иллюзия высоты)
+    -- 5b. Бесконечный ночной туман/облака Манхэттена (2 лёгких горизонтальных слоя — ноль просадок FPS и без границ)
     if isManhattanBoard then
-        local ct = love.timer.getTime()
         love.graphics.setDepthMode("lequal", false)
         love.graphics.setBlendMode("alpha")
-
-        local cloudDecks = {
-            { y = -1.30, span = 15.8, h = 0.22, a = 0.52, sx = 0.42, sz = -0.24 },
-            { y = -1.78, span = 18.4, h = 0.28, a = 0.74, sx = -0.34, sz = 0.36 },
-            { y = -2.35, span = 21.5, h = 0.36, a = 0.88, sx = 0.28, sz = 0.30 },
-            { y = -3.05, span = 25.0, h = 0.46, a = 0.96, sx = -0.22, sz = -0.18 }
-        }
-        for idx, cd in ipairs(cloudDecks) do
-            local dx = math.sin(ct * 0.16 + idx * 1.35) * cd.sx
-            local dz = math.cos(ct * 0.13 + idx * 1.85) * cd.sz
-            self:_drawMeshTransform(
-                self.meshRoundBase,
-                { dx, cd.y, dz },
-                { cd.span, 0, 0 }, { 0, cd.h, 0 }, { 0, 0, cd.span },
-                { 0.16, 0.22, 0.36, cd.a },
-                { 0.02, 0.03, 0.06 },
-                0.0, 0.0, 1.0, 18.0
-            )
-        end
-
-        for i = 1, 20 do
-            local baseAng = (i / 20) * math.pi * 2.0 + ct * (0.042 + (i % 3) * 0.012)
-            local ringR = 1.45 + (i % 4) * 1.35 + math.sin(ct * 0.20 + i * 0.7) * 0.32
-            local cx = math.cos(baseAng) * ringR
-            local cz = math.sin(baseAng) * ringR
-            local cy = -1.42 - (i % 4) * 0.38 + math.sin(ct * 0.32 + i * 0.9) * 0.08
-            local rx = 3.8 + (i % 3) * 1.15
-            local ry = 0.72 + (i % 2) * 0.26
-            local rz = 3.4 + ((i + 1) % 3) * 1.05
-            self:_drawMeshTransform(
-                self.meshSphere,
-                { cx, cy, cz },
-                { rx, 0, 0 }, { 0, ry, 0 }, { 0, 0, rz },
-                { 0.19, 0.25, 0.40, 0.46 },
-                { 0.02, 0.03, 0.05 },
-                0.0, 0.0, 1.0, 18.0
-            )
-        end
-
+        self:_drawMeshTransform(
+            self.meshBox,
+            { 0.0, -2.05, 0.0 },
+            { 140.0, 0, 0 }, { 0, 0.01, 0 }, { 0, 0, 140.0 },
+            { 0.18, 0.24, 0.38, 0.96 },
+            { 0.01, 0.02, 0.04 },
+            0.0, 0.0, 1.0, 18.0
+        )
+        self:_drawMeshTransform(
+            self.meshBox,
+            { 0.0, -1.32, 0.0 },
+            { 140.0, 0, 0 }, { 0, 0.01, 0 }, { 0, 0, 140.0 },
+            { 0.20, 0.28, 0.44, 0.56 },
+            { 0.01, 0.02, 0.04 },
+            0.0, 0.0, 1.0, 18.0
+        )
         love.graphics.setDepthMode("lequal", true)
     end
 

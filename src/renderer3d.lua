@@ -1012,23 +1012,22 @@ function Renderer3D:_buildPineConeTipMesh(segs)
     return love.graphics.newMesh(VERTEX_FORMAT, verts, "triangles", "static")
 end
 
--- Живая пушистая многоуровневая верхушка ёлки (с запасом перекрывает штырь и плотно садится на 3-й ярус)
+-- Естественная конусная верхушка ёлки (чистый конус с лёгким рельефом ветвей у основания, полностью закрывает штырь)
 function Renderer3D:_buildPineTopMesh(segs)
     local verts = {}
-    local baseR = 0.48
-    local yBot, yTop = -0.44, 0.62
+    local baseR = 0.50
+    local yBot, yTop = -0.44, 0.72
     local nSegs = segs or 44
-    local nRings = 11
+    local nRings = 8
 
+    local slope = baseR / (yTop - yBot)
     local function pt(a, t)
         local c, s = math.cos(a), math.sin(a)
-        local boughStep = 1.0 + 0.13 * math.sin(t * math.pi * 4.5) * (1.0 - t * 0.65)
-        local twigWave = 1.0 + (0.14 * math.cos(a * 7.0 + t * 2.2) + 0.08 * math.sin(a * 11.0 - 0.6) + 0.05 * math.cos(a * 19.0)) * (1.0 - t * 0.7)
-        local profile = (1.0 - t) ^ 0.62
-        local r = baseR * boughStep * twigWave * profile
-        local yJitter = 0.018 * math.sin(a * 7.0 + t * 3.0) * (1.0 - t)
-        local y = yBot + (yTop - yBot) * t + yJitter
-        local nx, ny, nz = c * 0.80, 0.60, s * 0.80
+        -- Лёгкие неровности еловых лапок по краю, сходящие на нет к острому кончику конуса
+        local twigWave = 1.0 + (0.09 * math.cos(a * 7.0) + 0.05 * math.sin(a * 11.0 - 0.5)) * (1.0 - t)
+        local r = baseR * (1.0 - t) * twigWave
+        local y = yBot + (yTop - yBot) * t
+        local nx, ny, nz = c, slope, s
         local nl = math.sqrt(nx*nx + ny*ny + nz*nz)
         return { c * r, y, s * r, nx/nl, ny/nl, nz/nl }
     end
@@ -2027,7 +2026,7 @@ function Renderer3D:renderScene(screenW, screenH, state)
                 local cS, sS = math.cos(sa), math.sin(sa)
                 self:_drawMeshTransform(
                     self.meshStar,
-                    { wx, wy + 0.78, wz },
+                    { wx, wy + 0.89, wz },
                     { cS, 0, -sS },
                     { 0, 1.0, 0 },
                     { sS, 0, cS },
@@ -2522,7 +2521,7 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
             if not isSil then
                 drawPrev(
                     self.meshStar,
-                    { 0.0, 1.36, 0.0 },
+                    { 0.0, 1.47, 0.0 },
                     { ca, 0, -sa }, { 0, 1.0, 0 }, { sa, 0, ca },
                     { 1.00, 0.82, 0.16, 1.0 }, { 0.38, 0.26, 0.04 }, 0.95, 0.0, 1.0, 7.0
                 )

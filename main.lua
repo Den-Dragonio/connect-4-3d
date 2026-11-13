@@ -97,20 +97,55 @@ local shopSortMode = "rarity_asc" -- "rarity_asc" | "rarity_desc"
 local lastCoinReward = nil
 local matchmakingState = { active = false, timer = 0, statsTimer = 0 }
 local activeTournamentMatch = nil
+local lastTournamentRoundSummary = nil
 local tournamentUI = {
     view = "hub", -- "hub" | "create" | "join" | "room"
-    system = "swiss",
+    system = "bracket",
     maxPlayers = 4,
     timeMinutes = 5,
     ruleMode = "standard",
-    isBotTournament = false,
+    isBotTournament = true,
     botDifficulty = "medium",
     prizeMode = "none", -- "none" | "host" | "entry_fee"
-    hostFund = 50,
+    hostFund = 40,
     entryFee = 20,
     joinCode = "",
     errorMsg = nil
 }
+local tournamentPrizeSlider = {
+    dragging = false,
+    x = 0,
+    y = 0,
+    w = 0,
+    h = 0,
+    minVal = 20,
+    maxVal = 500,
+    step = 20
+}
+
+local function updateTournamentPrizeSliderFromX(ux)
+    if tournamentPrizeSlider.w <= 0 then return end
+    local minV = tournamentPrizeSlider.minVal or 20
+    local maxV = tournamentPrizeSlider.maxVal or 500
+    local step = tournamentPrizeSlider.step or 20
+    local ratio = math.max(0, math.min(1, (ux - tournamentPrizeSlider.x) / tournamentPrizeSlider.w))
+    local steps = math.max(1, math.floor((maxV - minV) / step + 0.5))
+    local snapped = minV + math.floor(ratio * steps + 0.5) * step
+    snapped = math.max(minV, math.min(maxV, snapped))
+    if tournamentUI.prizeMode == "host" then
+        if tournamentUI.hostFund ~= snapped then
+            Sound.play("hover")
+            tournamentUI.hostFund = snapped
+            tournamentUI.errorMsg = nil
+        end
+    elseif tournamentUI.prizeMode == "entry_fee" then
+        if tournamentUI.entryFee ~= snapped then
+            Sound.play("hover")
+            tournamentUI.entryFee = snapped
+            tournamentUI.errorMsg = nil
+        end
+    end
+end
 local selectedAchievementId = nil
 local friendSearchText = ""
 local friendStatusFeedback = nil
@@ -436,7 +471,11 @@ local function startNewGame(mode, difficulty, lanRole, onlineRoom)
     end
     localOnlineRoom = onlineRoom
 
-    if Config.currentMode == Config.GameMode.VS_BOT then
+    if activeTournamentMatch then
+        Config.humanPlayer = activeTournamentMatch.humanIsWhite
+            and BoardLogic.Player.WHITE
+            or  BoardLogic.Player.BLACK
+    elseif Config.currentMode == Config.GameMode.VS_BOT then
         if Config.botColorChoice == "white" then
             Config.humanPlayer = BoardLogic.Player.WHITE
         elseif Config.botColorChoice == "black" then
@@ -482,6 +521,7 @@ local function startNewGame(mode, difficulty, lanRole, onlineRoom)
     botTimer = nil
     lastRatingDelta = 0
     lastCoinReward = nil
+    lastTournamentRoundSummary = nil
     hideWinModal = false
     rematchState = { timer = 60.0, myAccepted = false, peerAccepted = false }
     matchStartTime = love.timer.getTime()
@@ -523,17 +563,38 @@ local function finalizeGameEnd()
         localOnlineRoom and localOnlineRoom.opponent or nil
     )
     if activeTournamentMatch and Tournament.active then
+        local t = Tournament.active
+        local roundPlayed = activeTournamentMatch.round or t.currentRound or 1
+        local oppName = activeTournamentMatch.opponent or ""
         local humanWon = (gameLogic.winner == Config.humanPlayer)
         local tRes = Tournament.recordHumanMatchResult(Config.profile.username, humanWon, gameLogic.isDraw, #gameLogic.moveHistory)
+        local wonPrize = 0
         if tRes and tRes.finished then
-            local wonPrize = Tournament.claimChampionPrize(Config.profile.username)
+            wonPrize = Tournament.claimChampionPrize(Config.profile.username)
             if wonPrize > 0 then
                 Config.coins = Config.coins + wonPrize
             end
-            if tRes.champion == Config.profile.username and not Tournament.active.isBotTournament then
-                Config.recordTournamentWin(Tournament.active.name or "Tournament", Tournament.active.opponents or {}, Tournament.active.system)
+            if tRes.champion == Config.profile.username and not t.isBotTournament then
+                Config.recordTournamentWin(t.name or "Tournament", t.opponents or {}, t.system)
             end
         end
+        lastTournamentRoundSummary = {
+            roundPlayed = roundPlayed,
+            totalRounds = (tRes and tRes.totalRounds) or t.totalRounds or 1,
+            currentRound = (tRes and tRes.currentRound) or t.currentRound or 1,
+            system = t.system,
+            opponent = oppName,
+            humanWon = humanWon,
+            wonMatch = (tRes and tRes.wonMatch) and true or false,
+            isDraw = gameLogic.isDraw and true or false,
+            eliminated = (tRes and tRes.eliminated) and true or false,
+            eliminatedRound = tRes and tRes.eliminatedRound,
+            nextMatch = tRes and tRes.nextMatch,
+            finished = (tRes and tRes.finished) and true or false,
+            champion = tRes and tRes.champion,
+            prizePool = (tRes and tRes.prizePool) or 0,
+            wonPrize = wonPrize or 0
+        }
         activeTournamentMatch = nil
     end
     Storage.save()
@@ -939,20 +1000,62 @@ function love.load()
             prizeMode = "entry_fee", entryFee = 20
         })
         assert(Tournament.active and Tournament.active.prizePool == 80, "Expected 4-player entry_fee=20 pot to equal 80")
+        assert(#Tournament.active.rounds == 2, "Expected pre-allocated 2 bracket rounds for 4 players")
         local r1 = Tournament.recordHumanMatchResult("CIWinner", true, false, 7)
-        assert(r1 and r1.recorded and not r1.finished, "Expected round 1 recorded, not finished")
+        assert(r1 and r1.recorded and not r1.finished and r1.nextMatch ~= nil, "Expected round 1 recorded and semifinal/final ready")
         local r2 = Tournament.recordHumanMatchResult("CIWinner", true, false, 9)
         assert(r2 and r2.finished and r2.champion == "CIWinner" and r2.prizePool == 80, "Expected CIWinner champion after final")
         local won = Tournament.claimChampionPrize("CIWinner")
         assert(won == 80 and Tournament.claimChampionPrize("CIWinner") == 0, "Expected prize 80 claimed once")
 
+        -- Проверка 8-игроковой сетки: при поражении игрока боты должны доиграть 1/2 и Финал, определив чемпиона
+        Tournament.create({
+            system = "bracket", maxPlayers = 8, timeMinutes = 5, ruleMode = "standard",
+            isBotTournament = true, botDifficulty = "medium", hostName = "CILoser",
+            prizeMode = "none"
+        })
+        assert(Tournament.active and #Tournament.active.rounds == 3, "Expected 3 pre-allocated bracket rounds for 8 players")
+        local elimRes = Tournament.recordHumanMatchResult("CILoser", false, false, 8)
+        assert(elimRes and elimRes.recorded and elimRes.eliminated and elimRes.finished and elimRes.champion and elimRes.champion ~= "CILoser",
+            "Expected 8-player bracket to resolve remaining bot rounds to champion when human is eliminated")
+
         currentScreen = "tournament_modal"
         tournamentUI.view = "create"
         tournamentUI.prizeMode = "entry_fee"
         love.draw()
+        -- Проверка привязки ползунка к шагу 20
+        updateTournamentPrizeSliderFromX(tournamentPrizeSlider.x + tournamentPrizeSlider.w * 0.5)
+        assert(tournamentUI.entryFee % 20 == 0, "Expected slider entryFee to snap to multiples of 20")
         tournamentUI.view = "room"
         love.draw()
+
+        -- Проверка рендера Швейцарки и пошагового игрового HUD + экрана результата турнира
+        Tournament.create({
+            system = "swiss", maxPlayers = 8, timeMinutes = 5, ruleMode = "standard",
+            isBotTournament = true, botDifficulty = "easy", hostName = Config.profile.username,
+            prizeMode = "host", hostFund = 40
+        })
+        love.draw()
+        local swissPending = Tournament.getHumanPendingMatch(Config.profile.username)
+        assert(swissPending ~= nil, "Expected pending match in active swiss tournament")
+        activeTournamentMatch = {
+            id = swissPending.id, round = 1, totalRounds = Tournament.active.totalRounds,
+            opponent = (swissPending.p1 == Config.profile.username) and swissPending.p2 or swissPending.p1,
+            humanIsWhite = (swissPending.p1 == Config.profile.username), match = swissPending
+        }
+        currentScreen = "game"
+        love.draw()
+        activeTournamentMatch = nil
+        lastTournamentRoundSummary = {
+            roundPlayed = 1, totalRounds = 4, currentRound = 2, system = "swiss",
+            opponent = "AlphaBot", humanWon = true, wonMatch = true, isDraw = false,
+            eliminated = false, nextMatch = swissPending, finished = false, prizePool = 40, wonPrize = 0
+        }
+        love.draw()
+        lastTournamentRoundSummary = nil
+
         Tournament.leave()
+        tournamentUI.entryFee = 20
         tournamentUI.prizeMode = "none"
         tournamentUI.view = "hub"
         Config.coins = savedCoins
@@ -2234,7 +2337,8 @@ end
 
 local function drawTournamentModal(sw, sh)
     local ui = Config.getUITheme()
-    local pw, ph = 700, 565
+    local isRoomView = (tournamentUI.view == "room" and Tournament.active ~= nil)
+    local pw, ph = isRoomView and 860 or 700, isRoomView and 600 or 565
     local px, py = (sw - pw) * 0.5, (sh - ph) * 0.5
     drawPanel(px, py, pw, ph)
 
@@ -2334,77 +2438,98 @@ local function drawTournamentModal(sw, sh)
 
         if tournamentUI.prizeMode == "host" or tournamentUI.prizeMode == "entry_fee" then
             local isHost = (tournamentUI.prizeMode == "host")
+            local minV = 20
+            local maxV = isHost and 500 or 300
+            local step = 20
+            if isHost then
+                tournamentUI.hostFund = math.max(minV, math.min(maxV, math.floor((tournamentUI.hostFund or 40) / step + 0.5) * step))
+            else
+                tournamentUI.entryFee = math.max(minV, math.min(maxV, math.floor((tournamentUI.entryFee or 20) / step + 0.5) * step))
+            end
+            local selVal = isHost and tournamentUI.hostFund or tournamentUI.entryFee
             local expectedPool = isHost and tournamentUI.hostFund or (tournamentUI.entryFee * tournamentUI.maxPlayers)
+
             love.graphics.setFont(fonts.small)
             love.graphics.setColor(ui.textSub)
-            love.graphics.print(I18N.t(isHost and "tourn_host_fund_label" or "tourn_entry_fee_label"), bx, prizeTop + 60)
+            love.graphics.print(I18N.t(isHost and "tourn_host_fund_label" or "tourn_entry_fee_label"), bx, prizeTop + 58)
             love.graphics.setColor(0.45, 0.90, 0.58, 1.0)
-            love.graphics.printf(I18N.t("tourn_prize_pool", expectedPool), bx, prizeTop + 60, bw, "right")
+            love.graphics.printf(tostring(selVal) .. "  ->  " .. I18N.t("tourn_prize_pool", expectedPool), bx, prizeTop + 58, bw, "right")
 
-            local amtRowY = prizeTop + 80
-            local slotW = (bw - 40) / 6
-            if isHost then
-                local presets = { 20, 50, 100, 250 }
-                drawButton("tc_amt_sub", bx, amtRowY, slotW, 32, "-10", {
-                    font = fonts.small,
-                    onClick = function()
-                        Sound.play("click")
-                        tournamentUI.hostFund = math.max(10, tournamentUI.hostFund - 10)
-                        tournamentUI.errorMsg = nil
+            local amtRowY = prizeTop + 82
+            local stepBtnW = 46
+            local trackX = bx + stepBtnW + 16
+            local trackW = bw - (stepBtnW + 16) * 2
+            local trackY = amtRowY + 16
+
+            tournamentPrizeSlider.x = trackX
+            tournamentPrizeSlider.y = trackY
+            tournamentPrizeSlider.w = trackW
+            tournamentPrizeSlider.h = 34
+            tournamentPrizeSlider.minVal = minV
+            tournamentPrizeSlider.maxVal = maxV
+            tournamentPrizeSlider.step = step
+
+            drawButton("tc_amt_sub", bx, amtRowY, stepBtnW, 32, "-20", {
+                font = fonts.small,
+                onClick = function()
+                    Sound.play("click")
+                    if isHost then
+                        tournamentUI.hostFund = math.max(minV, tournamentUI.hostFund - step)
+                    else
+                        tournamentUI.entryFee = math.max(minV, tournamentUI.entryFee - step)
                     end
-                })
-                for idx, val in ipairs(presets) do
-                    drawButton("tc_amt_" .. val, bx + idx * (slotW + 8), amtRowY, slotW, 32, tostring(val), {
-                        active = (tournamentUI.hostFund == val), font = fonts.small,
-                        onClick = function()
-                            Sound.play("click")
-                            tournamentUI.hostFund = val
-                            tournamentUI.errorMsg = nil
-                        end
-                    })
+                    tournamentUI.errorMsg = nil
                 end
-                drawButton("tc_amt_add", bx + 5 * (slotW + 8), amtRowY, slotW, 32, "+10", {
-                    font = fonts.small,
-                    onClick = function()
-                        Sound.play("click")
-                        tournamentUI.hostFund = math.min(5000, tournamentUI.hostFund + 10)
-                        tournamentUI.errorMsg = nil
-                    end
-                })
-            else
-                local presets = { 10, 20, 50, 100 }
-                drawButton("tc_fee_sub", bx, amtRowY, slotW, 32, "-5", {
-                    font = fonts.small,
-                    onClick = function()
-                        Sound.play("click")
-                        tournamentUI.entryFee = math.max(5, tournamentUI.entryFee - 5)
-                        tournamentUI.errorMsg = nil
-                    end
-                })
-                for idx, val in ipairs(presets) do
-                    drawButton("tc_fee_" .. val, bx + idx * (slotW + 8), amtRowY, slotW, 32, tostring(val), {
-                        active = (tournamentUI.entryFee == val), font = fonts.small,
-                        onClick = function()
-                            Sound.play("click")
-                            tournamentUI.entryFee = val
-                            tournamentUI.errorMsg = nil
-                        end
-                    })
-                end
-                drawButton("tc_fee_add", bx + 5 * (slotW + 8), amtRowY, slotW, 32, "+5", {
-                    font = fonts.small,
-                    onClick = function()
-                        Sound.play("click")
-                        tournamentUI.entryFee = math.min(1000, tournamentUI.entryFee + 5)
-                        tournamentUI.errorMsg = nil
-                    end
-                })
+            })
+
+            -- Слайдер с шагом 20
+            local ratio = math.max(0, math.min(1, (selVal - minV) / math.max(1, maxV - minV)))
+            local knobX = trackX + ratio * trackW
+
+            love.graphics.setColor(ui.bgClear)
+            love.graphics.rectangle("fill", trackX, trackY - 4, trackW, 8, 4, 4)
+            love.graphics.setColor(0.96, 0.78, 0.22, 0.92)
+            love.graphics.rectangle("fill", trackX, trackY - 4, math.max(4, ratio * trackW), 8, 4, 4)
+            love.graphics.setColor(ui.panelBorder)
+            love.graphics.rectangle("line", trackX, trackY - 4, trackW, 8, 4, 4)
+
+            -- Засечки кратности 20
+            local steps = math.floor((maxV - minV) / step + 0.5)
+            for si = 0, steps do
+                local tx = trackX + (si / math.max(1, steps)) * trackW
+                local major = ((minV + si * step) % 100 == 0)
+                love.graphics.setColor(ui.textSub[1], ui.textSub[2], ui.textSub[3], major and 0.65 or 0.28)
+                love.graphics.setLineWidth(major and 2 or 1)
+                love.graphics.line(tx, trackY + 6, tx, trackY + (major and 13 or 10))
             end
+            love.graphics.setLineWidth(1)
+
+            -- Бегунок ползунка
+            love.graphics.setColor(tournamentPrizeSlider.dragging and { 1.0, 0.88, 0.38, 1.0 } or ui.textMain)
+            love.graphics.circle("fill", knobX, trackY, 12)
+            love.graphics.setColor(ui.panelBg)
+            love.graphics.setLineWidth(2)
+            love.graphics.circle("line", knobX, trackY, 12)
+            love.graphics.setLineWidth(1)
+
+            drawButton("tc_amt_add", bx + bw - stepBtnW, amtRowY, stepBtnW, 32, "+20", {
+                font = fonts.small,
+                onClick = function()
+                    Sound.play("click")
+                    if isHost then
+                        tournamentUI.hostFund = math.min(maxV, tournamentUI.hostFund + step)
+                    else
+                        tournamentUI.entryFee = math.min(maxV, tournamentUI.entryFee + step)
+                    end
+                    tournamentUI.errorMsg = nil
+                end
+            })
 
             love.graphics.setFont(fonts.small)
-            love.graphics.setColor(ui.textMain)
-            local selVal = isHost and tournamentUI.hostFund or tournamentUI.entryFee
-            love.graphics.printf(tostring(selVal) .. " -> " .. I18N.t("tourn_prize_pool", expectedPool), bx, amtRowY + 40, bw, "center")
+            love.graphics.setColor(ui.textSub)
+            love.graphics.print(tostring(minV), trackX - 4, trackY + 15)
+            love.graphics.printf(tostring(math.floor((minV + maxV) * 0.5)), trackX, trackY + 15, trackW, "center")
+            love.graphics.printf(tostring(maxV), trackX, trackY + 15, trackW + 4, "right")
         end
 
         if tournamentUI.errorMsg then
@@ -2487,9 +2612,17 @@ local function drawTournamentModal(sw, sh)
         })
     elseif tournamentUI.view == "room" and Tournament.active then
         local t = Tournament.active
+        local myName = Config.profile.username
+        local roundLabel = (t.status == "active")
+            and Tournament.getRoundLabel(t.currentRound, t.totalRounds, t.system, I18N)
+            or  (t.status == "finished" and I18N.t("tourn_finished_champion", tostring(t.champion or "")) or "")
+
         love.graphics.setFont(fonts.body)
         love.graphics.setColor(ui.textMain)
-        love.graphics.printf(I18N.t("tourn_code") .. " " .. t.code .. "   |   " .. (t.system == "swiss" and I18N.t("tourn_swiss") or I18N.t("tourn_bracket")), px, py + 48, pw, "center")
+        local headerStr = I18N.t("tourn_code") .. " " .. t.code
+            .. "   |   " .. (t.system == "swiss" and I18N.t("tourn_swiss") or I18N.t("tourn_bracket"))
+            .. (roundLabel ~= "" and ("   |   " .. roundLabel) or "")
+        love.graphics.printf(headerStr, px + 24, py + 48, pw - 48, "center")
 
         if (t.prizePool or 0) > 0 then
             love.graphics.setFont(fonts.small)
@@ -2500,70 +2633,237 @@ local function drawTournamentModal(sw, sh)
             elseif t.prizeMode == "host" then
                 poolTxt = poolTxt .. " (" .. I18N.t("tourn_prize_host") .. ")"
             end
-            love.graphics.printf(poolTxt, px, py + 72, pw, "center")
+            love.graphics.printf(poolTxt, px + 24, py + 72, pw - 48, "center")
         end
 
         if t.status == "lobby" then
-            drawButton("tr_start", bx, py + 98, bw, 38, I18N.t("tourn_start"), {
+            drawButton("tr_start", bx, py + 96, bw, 36, I18N.t("tourn_start"), {
                 primary = true,
                 onClick = function() Sound.play("click"); Tournament.startTournament() end
             })
         end
 
-        local listTop = (t.status == "lobby") and (py + 146) or (py + 106)
+        local listTop = (t.status == "lobby") and (py + 142) or (py + 100)
+        local areaH = 326
+        local pending = Tournament.getHumanPendingMatch(myName)
+        local elim, elimRound = Tournament.isHumanEliminated(myName)
+
         if t.system == "swiss" then
-            -- Таблица лидеров Швейцарки
+            -- Слева: таблица лидеров; справа: пары текущего раунда
+            local leftW = math.floor(bw * 0.53)
+            local rightX = bx + leftW + 20
+            local rightW = bw - leftW - 20
+
             love.graphics.setFont(fonts.small)
             love.graphics.setColor(ui.textSub)
             love.graphics.print(I18N.t("tourn_leaderboard"), bx, listTop)
             local lb = Tournament.getLeaderboard()
             for idx, row in ipairs(lb) do
                 if idx <= 8 then
-                    local ry = listTop + 24 + (idx - 1) * 25
-                    love.graphics.setColor(idx == 1 and { 0.96, 0.78, 0.22, 1.0 } or ui.textMain)
-                    love.graphics.print(string.format("#%d  %s", idx, row.name), bx, ry)
-                    love.graphics.printf(string.format("%.1f pts  (%dW/%dD/%dL)", row.score, row.wins, row.draws, row.losses), bx, ry, bw, "right")
+                    local ry = listTop + 24 + (idx - 1) * 34
+                    local isMe = (row.name == myName)
+                    love.graphics.setColor(isMe and { 0.96, 0.78, 0.22, 0.16 } or ui.bgClear)
+                    love.graphics.rectangle("fill", bx, ry - 4, leftW, 28, 6, 6)
+                    if isMe then
+                        love.graphics.setColor(0.96, 0.78, 0.22, 0.80)
+                        love.graphics.rectangle("line", bx, ry - 4, leftW, 28, 6, 6)
+                    end
+                    love.graphics.setColor(idx == 1 and { 0.96, 0.78, 0.22, 1.0 } or (isMe and ui.accentText or ui.textMain))
+                    love.graphics.print(string.format("#%d  %s", idx, row.name), bx + 8, ry + 2)
+                    love.graphics.printf(string.format("%.1f  (%d/%d/%d)", row.score, row.wins, row.draws, row.losses), bx, ry + 2, leftW - 8, "right")
+                end
+            end
+
+            local showRound = math.max(1, t.currentRound)
+            local rMatches = t.rounds[showRound] or {}
+            love.graphics.setColor(ui.textSub)
+            love.graphics.print(I18N.t("tourn_round_matches", showRound, t.totalRounds), rightX, listTop)
+            for mIdx, m in ipairs(rMatches) do
+                if mIdx <= 6 then
+                    local my = listTop + 24 + (mIdx - 1) * 48
+                    local isHumanMatch = (m.p1 == myName or m.p2 == myName)
+                    love.graphics.setColor(isHumanMatch and { 0.96, 0.78, 0.22, 0.14 } or ui.bgClear)
+                    love.graphics.rectangle("fill", rightX, my, rightW, 42, 6, 6)
+                    love.graphics.setColor(isHumanMatch and { 0.96, 0.78, 0.22, 0.95 } or (m.done and { 0.30, 0.75, 0.48, 0.85 } or ui.panelBorder))
+                    love.graphics.rectangle("line", rightX, my, rightW, 42, 6, 6)
+                    love.graphics.setFont(fonts.small)
+                    love.graphics.setColor(ui.textMain)
+                    love.graphics.printf((m.p1 or "?") .. "  vs  " .. (m.p2 or "?"), rightX + 8, my + 5, rightW - 16, "center")
+                    if m.done then
+                        local resTxt = (m.winner == "DRAW") and I18N.t("tourn_draw_short") or ("-> " .. tostring(m.winner))
+                        love.graphics.setColor(0.45, 0.90, 0.58, 1.0)
+                        love.graphics.printf(resTxt, rightX + 8, my + 22, rightW - 16, "center")
+                    end
                 end
             end
         else
-            -- График турнирной сетки (Bracket Tree)
-            local rounds = #t.rounds
-            local colW = (bw - 20) / math.max(1, rounds)
+            -- Полноценная олимпийская сетка (Bracket Tree) со всеми раундами и соединительными линиями
+            local roundsCount = math.max(1, #t.rounds)
+            local colGap = 28
+            local cardW = (bw - (roundsCount - 1) * colGap) / roundsCount
+            local cardH = 48
+            local headerH = 24
+            local gridTop = listTop + headerH
+            local gridH = areaH - headerH
+
+            -- Вычислим координаты центров каждой карточки для точного дерева линий
+            local centers = {}
+            for rIdx = 1, roundsCount do
+                centers[rIdx] = {}
+                local rMatches = t.rounds[rIdx] or {}
+                local rx = bx + (rIdx - 1) * (cardW + colGap)
+                -- Заголовок этапа
+                love.graphics.setFont(fonts.small)
+                love.graphics.setColor(rIdx == t.currentRound and { 0.96, 0.78, 0.22, 1.0 } or ui.textSub)
+                love.graphics.printf(Tournament.getRoundLabel(rIdx, t.totalRounds, t.system, I18N), rx, listTop, cardW, "center")
+
+                if rIdx == 1 then
+                    local stepY = gridH / math.max(1, #rMatches)
+                    for mIdx = 1, #rMatches do
+                        centers[rIdx][mIdx] = gridTop + (mIdx - 0.5) * stepY
+                    end
+                else
+                    for mIdx = 1, #rMatches do
+                        local c1 = centers[rIdx - 1][2 * mIdx - 1]
+                        local c2 = centers[rIdx - 1][2 * mIdx]
+                        if c1 and c2 then
+                            centers[rIdx][mIdx] = (c1 + c2) * 0.5
+                        else
+                            local stepY = gridH / math.max(1, #rMatches)
+                            centers[rIdx][mIdx] = gridTop + (mIdx - 0.5) * stepY
+                        end
+                    end
+                end
+            end
+
+            -- Соединительные линии между раундами
+            for rIdx = 1, roundsCount - 1 do
+                local rx = bx + (rIdx - 1) * (cardW + colGap)
+                local nextRx = rx + cardW + colGap
+                local midX = rx + cardW + colGap * 0.5
+                local rMatches = t.rounds[rIdx] or {}
+                local nextMatches = t.rounds[rIdx + 1] or {}
+                for k = 1, #nextMatches do
+                    local c1 = centers[rIdx][2 * k - 1]
+                    local c2 = centers[rIdx][2 * k]
+                    local cNext = centers[rIdx + 1][k]
+                    if c1 and c2 and cNext then
+                        local m1 = rMatches[2 * k - 1]
+                        local m2 = rMatches[2 * k]
+                        love.graphics.setLineWidth(2)
+                        love.graphics.setColor((m1 and m1.done) and { 0.35, 0.80, 0.52, 0.85 } or ui.panelBorder)
+                        love.graphics.line(rx + cardW, c1, midX, c1, midX, cNext)
+                        love.graphics.setColor((m2 and m2.done) and { 0.35, 0.80, 0.52, 0.85 } or ui.panelBorder)
+                        love.graphics.line(rx + cardW, c2, midX, c2, midX, cNext)
+                        love.graphics.setColor(((m1 and m1.done) or (m2 and m2.done)) and { 0.35, 0.80, 0.52, 0.85 } or ui.panelBorder)
+                        love.graphics.line(midX, cNext, nextRx, cNext)
+                    end
+                end
+            end
+            love.graphics.setLineWidth(1)
+
+            -- Карточки матчей
             for rIdx, rMatches in ipairs(t.rounds) do
-                local rx = bx + (rIdx - 1) * colW
-                local stepY = 230 / math.max(1, #rMatches)
+                local rx = bx + (rIdx - 1) * (cardW + colGap)
                 for mIdx, m in ipairs(rMatches) do
-                    local my = listTop + 12 + (mIdx - 0.5) * stepY
-                    love.graphics.setColor(ui.bgClear)
-                    love.graphics.rectangle("fill", rx, my - 18, colW - 14, 38, 6, 6)
-                    love.graphics.setColor(m.done and { 0.30, 0.75, 0.48, 1.0 } or ui.panelBorder)
-                    love.graphics.rectangle("line", rx, my - 18, colW - 14, 38, 6, 6)
+                    local my = (centers[rIdx][mIdx] or (gridTop + 40)) - cardH * 0.5
+                    local isCurrentHuman = (pending and m.id == pending.id)
+                    local isHumanMatch = (m.p1 == myName or m.p2 == myName)
+
+                    love.graphics.setColor(isCurrentHuman and { 0.96, 0.78, 0.22, 0.16 } or ui.bgClear)
+                    love.graphics.rectangle("fill", rx, my, cardW, cardH, 7, 7)
+
+                    if isCurrentHuman then
+                        love.graphics.setColor(0.96, 0.78, 0.22, 1.0)
+                        love.graphics.setLineWidth(2.2)
+                    elseif m.done and isHumanMatch and m.winner == myName then
+                        love.graphics.setColor(0.32, 0.82, 0.52, 0.95)
+                        love.graphics.setLineWidth(1.8)
+                    elseif m.done then
+                        love.graphics.setColor(0.30, 0.75, 0.48, 0.65)
+                        love.graphics.setLineWidth(1.2)
+                    else
+                        love.graphics.setColor(ui.panelBorder)
+                        love.graphics.setLineWidth(1.2)
+                    end
+                    love.graphics.rectangle("line", rx, my, cardW, cardH, 7, 7)
+                    love.graphics.setLineWidth(1)
+
+                    -- Разделитель слотов p1 и p2
+                    love.graphics.setColor(ui.panelBorder[1], ui.panelBorder[2], ui.panelBorder[3], 0.45)
+                    love.graphics.line(rx + 6, my + cardH * 0.5, rx + cardW - 6, my + cardH * 0.5)
+
                     love.graphics.setFont(fonts.small)
-                    love.graphics.setColor(ui.textMain)
-                    love.graphics.printf((m.p1 or "?") .. " vs " .. (m.p2 or "?"), rx + 4, my - 10, colW - 22, "center")
+                    local p1Name = m.p1 or I18N.t("tourn_tbd")
+                    local p2Name = m.p2 or I18N.t("tourn_tbd")
+                    local p1Col = ui.textMain
+                    local p2Col = ui.textMain
+                    if not m.p1 then
+                        p1Col = { ui.textSub[1], ui.textSub[2], ui.textSub[3], 0.55 }
+                    elseif m.done then
+                        p1Col = (m.winner == m.p1) and ((m.p1 == myName) and { 0.98, 0.82, 0.26, 1.0 } or { 0.45, 0.90, 0.58, 1.0 }) or { ui.textSub[1], ui.textSub[2], ui.textSub[3], 0.55 }
+                    elseif m.p1 == myName then
+                        p1Col = { 0.98, 0.82, 0.26, 1.0 }
+                    end
+                    if not m.p2 then
+                        p2Col = { ui.textSub[1], ui.textSub[2], ui.textSub[3], 0.55 }
+                    elseif m.done then
+                        p2Col = (m.winner == m.p2) and ((m.p2 == myName) and { 0.98, 0.82, 0.26, 1.0 } or { 0.45, 0.90, 0.58, 1.0 }) or { ui.textSub[1], ui.textSub[2], ui.textSub[3], 0.55 }
+                    elseif m.p2 == myName then
+                        p2Col = { 0.98, 0.82, 0.26, 1.0 }
+                    end
+
+                    love.graphics.setColor(p1Col)
+                    love.graphics.printf(p1Name, rx + 8, my + 4, cardW - 16, "left")
+                    love.graphics.setColor(p2Col)
+                    love.graphics.printf(p2Name, rx + 8, my + cardH * 0.5 + 4, cardW - 16, "left")
                 end
             end
         end
 
-        local pending = Tournament.getHumanPendingMatch(Config.profile.username)
-        local myPaid = (t.status == "lobby" and t.paidPlayers and (t.paidPlayers[Config.profile.username] or 0)) or 0
+        local myPaid = (t.status == "lobby" and t.paidPlayers and (t.paidPlayers[myName] or 0)) or 0
         if pending and t.status == "active" then
-            drawButton("tr_play_match", bx, py + ph - 104, bw, 40, I18N.t("tourn_play_match") .. " (" .. pending.p1 .. " vs " .. pending.p2 .. ")", {
+            local oppName = (pending.p1 == myName) and pending.p2 or pending.p1
+            local isWhiteSide = (pending.p1 == myName)
+            love.graphics.setFont(fonts.small)
+            love.graphics.setColor(0.96, 0.78, 0.22, 1.0)
+            love.graphics.printf(
+                I18N.t("tourn_your_match", tostring(pending.p1), tostring(pending.p2))
+                    .. "   •   " .. I18N.t(isWhiteSide and "tourn_your_color_w" or "tourn_your_color_b"),
+                bx, py + ph - 134, bw, "center"
+            )
+            drawButton("tr_play_match", bx, py + ph - 108, bw - 170, 42, I18N.t("tourn_play_match") .. " (" .. roundLabel .. " vs " .. tostring(oppName) .. ")", {
                 primary = true,
                 onClick = function()
                     Sound.play("click")
-                    activeTournamentMatch = pending
+                    activeTournamentMatch = {
+                        id = pending.id,
+                        round = t.currentRound,
+                        totalRounds = t.totalRounds,
+                        opponent = oppName,
+                        humanIsWhite = isWhiteSide,
+                        match = pending
+                    }
                     Config.ruleMode = t.ruleMode or "standard"
                     Config.onlineTimeMinutes = t.timeMinutes or 5
                     local diffNum = tonumber(t.botDifficulty) or ((t.botDifficulty == "easy" and 1) or (t.botDifficulty == "hard" and 3) or 2)
                     startNewGame(t.isBotTournament and Config.GameMode.VS_BOT or Config.GameMode.ONLINE, diffNum)
                 end
             })
-        elseif t.status == "lobby" and myPaid > 0 then
-            drawButton("tr_cancel_refund", bx, py + ph - 104, bw, 38, I18N.t("tourn_cancel_refund", myPaid), {
+            drawButton("tr_leave_active", bx + bw - 156, py + ph - 108, 156, 42, I18N.t("tourn_leave_btn"), {
                 onClick = function()
                     Sound.play("click")
-                    local refunded = Tournament.cancelOrRefund(Config.profile.username)
+                    Tournament.leave()
+                    activeTournamentMatch = nil
+                    lastTournamentRoundSummary = nil
+                    tournamentUI.view = "hub"
+                end
+            })
+        elseif t.status == "lobby" and myPaid > 0 then
+            drawButton("tr_cancel_refund", bx, py + ph - 108, bw, 40, I18N.t("tourn_cancel_refund", myPaid), {
+                onClick = function()
+                    Sound.play("click")
+                    local refunded = Tournament.cancelOrRefund(myName)
                     if refunded > 0 then
                         Config.coins = Config.coins + refunded
                         Storage.save()
@@ -2574,12 +2874,28 @@ local function drawTournamentModal(sw, sh)
         elseif t.status == "finished" and t.champion then
             love.graphics.setFont(fonts.h2)
             love.graphics.setColor(0.96, 0.78, 0.22, 1.0)
-            love.graphics.printf("Champion: " .. tostring(t.champion), bx, py + ph - 114, bw, "center")
-            if (t.prizePool or 0) > 0 then
-                love.graphics.setFont(fonts.small)
+            local finishMsg = (t.champion == myName)
+                and I18N.t("tourn_champion_you")
+                or  ("Champion: " .. tostring(t.champion))
+            love.graphics.printf(finishMsg, bx, py + ph - 144, bw, "center")
+            love.graphics.setFont(fonts.small)
+            if elim and elimRound then
+                love.graphics.setColor(ui.textSub)
+                love.graphics.printf(I18N.t("tourn_eliminated", Tournament.getRoundLabel(elimRound, t.totalRounds, t.system, I18N)), bx, py + ph - 114, bw, "center")
+            elseif (t.prizePool or 0) > 0 then
                 love.graphics.setColor(0.45, 0.90, 0.58, 1.0)
-                love.graphics.printf(I18N.t("tourn_won_prize", t.prizePool), bx, py + ph - 82, bw, "center")
+                love.graphics.printf(I18N.t("tourn_won_prize", t.prizePool), bx, py + ph - 114, bw, "center")
             end
+            drawButton("tr_new_tournament", bx + (bw - 260) * 0.5, py + ph - 92, 260, 36, I18N.t("tourn_new_tournament"), {
+                primary = true,
+                font = fonts.small,
+                onClick = function()
+                    Sound.play("click")
+                    Tournament.leave()
+                    lastTournamentRoundSummary = nil
+                    tournamentUI.view = "create"
+                end
+            })
         end
     end
 
@@ -4122,6 +4438,19 @@ local function drawCleanGameHUD(sw, sh)
         love.graphics.printf(I18N.t("rule_free"), mxPill + 6, myPill + 4, modeW - 12, "center")
     end
 
+    if activeTournamentMatch and Tournament.active then
+        local tPillW = 360
+        local tPillX = (sw - tPillW) * 0.5
+        local tPillY = by + bannerH + ((gameLogic.ruleMode == "free") and 34 or 6)
+        drawPanel(tPillX, tPillY, tPillW, 24)
+        love.graphics.setFont(fonts.small)
+        love.graphics.setColor(0.96, 0.78, 0.22, 1.0)
+        love.graphics.printf(
+            I18N.t("tourn_hud_banner", activeTournamentMatch.round or 1, activeTournamentMatch.totalRounds or 1, tostring(activeTournamentMatch.opponent or "")),
+            tPillX + 8, tPillY + 4, tPillW - 16, "center"
+        )
+    end
+
     -- 2. TOP-RIGHT: Scrollable Chess-Style Move Log (1. a1.1   b2.1) + Arrow Rewind Indicator
     local logW, logH = 225, 250
     local lx, ly = sw - logW - 18, 14
@@ -4206,30 +4535,44 @@ local function drawCleanGameHUD(sw, sh)
         end
     end
 
-    -- Кнопка выхода в главное меню появляется под списком ходов только в конце партии и если окно победы скрыто
+    -- Кнопка выхода в главное меню (или к сетке турнира) появляется под списком ходов, если окно победы скрыто
     if gameLogic.isGameOver and not activeDrop and hideWinModal then
         local exitY = ly + logH + 10
         local exitH = 38
-        drawButton("hud_main_menu", lx, exitY, logW, exitH, "  " .. I18N.t("main_menu"), {
-            font = fonts.small,
-            onClick = function()
-                Sound.play("click")
-                isReplayMode = false
-                if localOnlineRoom then
-                    Firebase.closeFriendRoom(localOnlineRoom.code)
-                    localOnlineRoom = nil
+        if lastTournamentRoundSummary then
+            drawButton("hud_tourn_bracket", lx, exitY, logW, exitH, I18N.t("tourn_to_bracket"), {
+                primary = true,
+                font = fonts.small,
+                onClick = function()
+                    Sound.play("click")
+                    isReplayMode = false
+                    lastTournamentRoundSummary = nil
+                    tournamentUI.view = Tournament.active and "room" or "hub"
+                    currentScreen = "tournament_modal"
                 end
-                currentScreen = "menu"
+            })
+        else
+            drawButton("hud_main_menu", lx, exitY, logW, exitH, "  " .. I18N.t("main_menu"), {
+                font = fonts.small,
+                onClick = function()
+                    Sound.play("click")
+                    isReplayMode = false
+                    if localOnlineRoom then
+                        Firebase.closeFriendRoom(localOnlineRoom.code)
+                        localOnlineRoom = nil
+                    end
+                    currentScreen = "menu"
+                end
+            })
+            do
+                local ix, iy = lx + 16, exitY + 10
+                love.graphics.setColor(ui.textMain)
+                love.graphics.setLineWidth(1.8)
+                love.graphics.line(ix + 8, iy, ix, iy, ix, iy + 18, ix + 8, iy + 18)
+                love.graphics.line(ix + 5, iy + 9, ix + 15, iy + 9)
+                love.graphics.line(ix + 11, iy + 5, ix + 15, iy + 9, ix + 11, iy + 13)
+                love.graphics.setLineWidth(1)
             end
-        })
-        do
-            local ix, iy = lx + 16, exitY + 10
-            love.graphics.setColor(ui.textMain)
-            love.graphics.setLineWidth(1.8)
-            love.graphics.line(ix + 8, iy, ix, iy, ix, iy + 18, ix + 8, iy + 18)
-            love.graphics.line(ix + 5, iy + 9, ix + 15, iy + 9)
-            love.graphics.line(ix + 11, iy + 5, ix + 15, iy + 9, ix + 11, iy + 13)
-            love.graphics.setLineWidth(1)
         end
     end
 
@@ -4239,7 +4582,8 @@ local function drawCleanGameHUD(sw, sh)
             love.graphics.setColor(0.05, 0.05, 0.06, 0.62)
             love.graphics.rectangle("fill", 0, 0, sw, sh)
 
-            local pw, ph = 520, 316
+            local isTournResult = (lastTournamentRoundSummary ~= nil)
+            local pw, ph = 520, isTournResult and 352 or 316
             local px, py = (sw - pw) * 0.5, (sh - ph) * 0.5
             drawPanel(px, py, pw, ph)
 
@@ -4316,58 +4660,101 @@ local function drawCleanGameHUD(sw, sh)
                 love.graphics.rectangle("line", barX, barY, barW, barH, 5, 5)
             end
 
+            local inspectY = isTournResult and (py + 216) or (py + 180)
+            if isTournResult then
+                local ts = lastTournamentRoundSummary
+                local tournMsg = ""
+                local tournCol = { 0.96, 0.78, 0.22, 1.0 }
+                if ts.finished then
+                    if ts.champion == Config.profile.username then
+                        tournMsg = I18N.t("tourn_champion_you")
+                        if (ts.wonPrize or 0) > 0 then
+                            tournMsg = tournMsg .. " (+" .. tostring(ts.wonPrize) .. ")"
+                        end
+                    else
+                        tournMsg = I18N.t("tourn_finished_champion", tostring(ts.champion or ""))
+                        tournCol = ui.textSub
+                    end
+                elseif ts.nextMatch then
+                    local nextOpp = (ts.nextMatch.p1 == Config.profile.username) and ts.nextMatch.p2 or ts.nextMatch.p1
+                    tournMsg = I18N.t("tourn_advanced_msg", ts.currentRound, ts.totalRounds, tostring(nextOpp or ""))
+                    tournCol = { 0.45, 0.90, 0.58, 1.0 }
+                end
+                love.graphics.setFont(fonts.small)
+                love.graphics.setColor(tournCol)
+                love.graphics.printf(tournMsg, px + 24, py + 178, pw - 48, "center")
+            end
+
             love.graphics.setFont(fonts.small)
             love.graphics.setColor(ui.textSub)
-            love.graphics.printf(I18N.t("inspect_board_hint"), px + 20, py + 180, pw - 40, "center")
+            love.graphics.printf(I18N.t("inspect_board_hint"), px + 20, inspectY, pw - 40, "center")
             table.insert(uiButtons, {
                 id = "win_inspect_toggle",
-                x = px + 20, y = py + 174, w = pw - 40, h = 38,
+                x = px + 20, y = inspectY - 6, w = pw - 40, h = 38,
                 onClick = function()
                     Sound.play("click")
                     hideWinModal = true
                 end
             })
 
-            local rematchSecs = math.ceil(math.max(0, rematchState.timer or 0))
-            local isLiveNet = (Config.currentMode == Config.GameMode.ONLINE and localOnlineRoom) or (Config.currentMode == Config.GameMode.LAN and LAN.connected)
-            local rematchLabel
-            local rematchOpts = { primary = true, font = fonts.small }
-            if rematchState.timer <= 0 then
-                rematchLabel = I18N.t("rematch_expired")
-                rematchOpts.primary = false
-                rematchOpts.disabled = true
-            elseif isLiveNet and rematchState.myAccepted and not rematchState.peerAccepted then
-                rematchLabel = I18N.t("rematch_waiting", rematchSecs)
-                rematchOpts.primary = false
-                rematchOpts.active = true
-            elseif isLiveNet and rematchState.peerAccepted and not rematchState.myAccepted then
-                rematchLabel = I18N.t("rematch_incoming", rematchSecs)
-                rematchOpts.active = true
-                rematchOpts.primary = false
-            else
-                rematchLabel = I18N.t("rematch_btn", rematchSecs)
-            end
-            rematchOpts.onClick = function()
-                if rematchState.timer <= 0 then return end
-                Sound.play("click")
-                if Config.currentMode == Config.GameMode.ONLINE and localOnlineRoom then
-                    rematchState.myAccepted = true
-                    Firebase.setFriendRoomRematch(localOnlineRoom.code, localOnlineRoom.role, true)
-                elseif Config.currentMode == Config.GameMode.LAN and LAN.connected then
-                    rematchState.myAccepted = true
-                    LAN.sendRematch()
-                    if rematchState.peerAccepted then
-                        Sound.play("win")
-                        startNewGame(Config.GameMode.LAN, nil, LAN.role)
+            if isTournResult then
+                local ts = lastTournamentRoundSummary
+                local nextBtnLabel = (ts.nextMatch and not ts.finished)
+                    and I18N.t("tourn_next_round_btn", ts.currentRound, ts.totalRounds)
+                    or  I18N.t("tourn_results_btn")
+                drawButton("win_tourn_bracket", px + 38, py + ph - 66, 205, 46, nextBtnLabel, {
+                    primary = true,
+                    font = fonts.small,
+                    onClick = function()
+                        Sound.play("click")
+                        lastTournamentRoundSummary = nil
+                        tournamentUI.view = Tournament.active and "room" or "hub"
+                        currentScreen = "tournament_modal"
                     end
+                })
+            else
+                local rematchSecs = math.ceil(math.max(0, rematchState.timer or 0))
+                local isLiveNet = (Config.currentMode == Config.GameMode.ONLINE and localOnlineRoom) or (Config.currentMode == Config.GameMode.LAN and LAN.connected)
+                local rematchLabel
+                local rematchOpts = { primary = true, font = fonts.small }
+                if rematchState.timer <= 0 then
+                    rematchLabel = I18N.t("rematch_expired")
+                    rematchOpts.primary = false
+                    rematchOpts.disabled = true
+                elseif isLiveNet and rematchState.myAccepted and not rematchState.peerAccepted then
+                    rematchLabel = I18N.t("rematch_waiting", rematchSecs)
+                    rematchOpts.primary = false
+                    rematchOpts.active = true
+                elseif isLiveNet and rematchState.peerAccepted and not rematchState.myAccepted then
+                    rematchLabel = I18N.t("rematch_incoming", rematchSecs)
+                    rematchOpts.active = true
+                    rematchOpts.primary = false
                 else
-                    startNewGame(Config.currentMode, Config.botDifficulty)
+                    rematchLabel = I18N.t("rematch_btn", rematchSecs)
                 end
+                rematchOpts.onClick = function()
+                    if rematchState.timer <= 0 then return end
+                    Sound.play("click")
+                    if Config.currentMode == Config.GameMode.ONLINE and localOnlineRoom then
+                        rematchState.myAccepted = true
+                        Firebase.setFriendRoomRematch(localOnlineRoom.code, localOnlineRoom.role, true)
+                    elseif Config.currentMode == Config.GameMode.LAN and LAN.connected then
+                        rematchState.myAccepted = true
+                        LAN.sendRematch()
+                        if rematchState.peerAccepted then
+                            Sound.play("win")
+                            startNewGame(Config.GameMode.LAN, nil, LAN.role)
+                        end
+                    else
+                        startNewGame(Config.currentMode, Config.botDifficulty)
+                    end
+                end
+                drawButton("win_rematch", px + 38, py + ph - 66, 205, 46, rematchLabel, rematchOpts)
             end
-            drawButton("win_rematch", px + 38, py + ph - 66, 205, 46, rematchLabel, rematchOpts)
             drawButton("win_menu", px + pw - 243, py + ph - 66, 205, 46, I18N.t("main_menu"), {
                 onClick = function()
                     Sound.play("click")
+                    lastTournamentRoundSummary = nil
                     if localOnlineRoom then
                         Firebase.closeFriendRoom(localOnlineRoom.code)
                         localOnlineRoom = nil
@@ -4657,6 +5044,12 @@ function love.mousepressed(x, y, button)
 
         if currentScreen == "shop" and uy > 80 then
             shopDragging = true
+        elseif currentScreen == "tournament_modal" and tournamentUI.view == "create"
+           and (tournamentUI.prizeMode == "host" or tournamentUI.prizeMode == "entry_fee")
+           and ux >= tournamentPrizeSlider.x - 14 and ux <= tournamentPrizeSlider.x + tournamentPrizeSlider.w + 14
+           and math.abs(uy - tournamentPrizeSlider.y) <= 22 then
+            tournamentPrizeSlider.dragging = true
+            updateTournamentPrizeSliderFromX(ux)
         elseif currentScreen == "game" then
             local logW, logH = 225, 250
             local lx, ly = sw - logW - 18, 14
@@ -4714,6 +5107,11 @@ function love.mousemoved(x, y, dx, dy, istouch)
         return
     end
 
+    if currentScreen == "tournament_modal" and mouseState.leftDown and tournamentPrizeSlider.dragging then
+        updateTournamentPrizeSliderFromX(ux)
+        return
+    end
+
     if currentScreen == "bot_modal" and mouseState.leftDown then
         local pw, ph = 520, 390
         local px, py = (sw - pw) * 0.5, (sh - ph) * 0.5
@@ -4752,13 +5150,15 @@ function love.mousereleased(x, y, button)
     if button == 1 then
         local wasDragged = mouseState.dragged
         local wasPinched = pinchActive
+        local wasSliderDragging = tournamentPrizeSlider.dragging
         mouseState.leftDown = false
         mouseState.dragged = false
         mouseState.inMoveLog = false
         mouseState.inProfileMatches = false
         shopDragging = false
+        tournamentPrizeSlider.dragging = false
 
-        if not wasDragged and not wasPinched then
+        if not wasDragged and not wasPinched and not wasSliderDragging then
             for _, btn in ipairs(uiButtons) do
                 if ux >= btn.x and ux <= btn.x + btn.w and uy >= btn.y and uy <= btn.y + btn.h then
                     if btn.onClick then btn.onClick() end
@@ -4809,6 +5209,15 @@ function love.touchpressed(id, x, y)
     if c >= 2 then
         pinchActive = true
         lastPinchDist = math.sqrt((pts[1].x - pts[2].x)^2 + (pts[1].y - pts[2].y)^2)
+    elseif c == 1 and currentScreen == "tournament_modal" and tournamentUI.view == "create"
+       and (tournamentUI.prizeMode == "host" or tournamentUI.prizeMode == "entry_fee") then
+        local _, _, uiScale = getUIScaleAndDims()
+        local ux, uy = x / uiScale, y / uiScale
+        if ux >= tournamentPrizeSlider.x - 14 and ux <= tournamentPrizeSlider.x + tournamentPrizeSlider.w + 14
+           and math.abs(uy - tournamentPrizeSlider.y) <= 24 then
+            tournamentPrizeSlider.dragging = true
+            updateTournamentPrizeSliderFromX(ux)
+        end
     end
 end
 
@@ -4816,6 +5225,11 @@ function love.touchmoved(id, x, y)
     isTouchDevice = true
     activeTouches[id] = { x = x, y = y }
     local c, pts = countActiveTouches()
+    if c == 1 and tournamentPrizeSlider.dragging and currentScreen == "tournament_modal" then
+        local _, _, uiScale = getUIScaleAndDims()
+        updateTournamentPrizeSliderFromX(x / uiScale)
+        return
+    end
     if c >= 2 and currentScreen == "game" then
         pinchActive = true
         local dist = math.sqrt((pts[1].x - pts[2].x)^2 + (pts[1].y - pts[2].y)^2)
@@ -4830,6 +5244,9 @@ end
 function love.touchreleased(id, x, y)
     activeTouches[id] = nil
     local c = countActiveTouches()
+    if c == 0 then
+        tournamentPrizeSlider.dragging = false
+    end
     if c < 2 then
         lastPinchDist = nil
         if c == 0 then

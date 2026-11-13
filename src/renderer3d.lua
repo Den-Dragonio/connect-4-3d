@@ -1012,21 +1012,21 @@ function Renderer3D:_buildPineConeTipMesh(segs)
     return love.graphics.newMesh(VERTEX_FORMAT, verts, "triangles", "static")
 end
 
--- Живая пушистая многоуровневая верхушка ёлки (без отверстия под штырь, с выступающими веточками)
+-- Живая пушистая многоуровневая верхушка ёлки (стройная и пропорциональная нижним ярусам, закрывает штырь)
 function Renderer3D:_buildPineTopMesh(segs)
     local verts = {}
-    local baseR = 0.56
-    local yBot, yTop = -0.35, 0.70
+    local baseR = 0.42
+    local yBot, yTop = -0.34, 0.54
     local nSegs = segs or 44
     local nRings = 11
 
     local function pt(a, t)
         local c, s = math.cos(a), math.sin(a)
-        local boughStep = 1.0 + 0.16 * math.sin(t * math.pi * 5.0) * (1.0 - t * 0.5)
-        local twigWave = 1.0 + (0.16 * math.cos(a * 7.0 + t * 2.2) + 0.10 * math.sin(a * 11.0 - 0.6) + 0.06 * math.cos(a * 19.0)) * (1.0 - t * 0.62)
-        local profile = (1.0 - t) ^ 0.64
+        local boughStep = 1.0 + 0.14 * math.sin(t * math.pi * 4.5) * (1.0 - t * 0.65)
+        local twigWave = 1.0 + (0.14 * math.cos(a * 7.0 + t * 2.2) + 0.08 * math.sin(a * 11.0 - 0.6) + 0.05 * math.cos(a * 19.0)) * (1.0 - t * 0.7)
+        local profile = (1.0 - t) ^ 0.78
         local r = baseR * boughStep * twigWave * profile
-        local yJitter = 0.025 * math.sin(a * 7.0 + t * 3.0) * (1.0 - t)
+        local yJitter = 0.018 * math.sin(a * 7.0 + t * 3.0) * (1.0 - t)
         local y = yBot + (yTop - yBot) * t + yJitter
         local nx, ny, nz = c * 0.80, 0.60, s * 0.80
         local nl = math.sqrt(nx*nx + ny*ny + nz*nz)
@@ -1937,8 +1937,8 @@ function Renderer3D:renderScene(screenW, screenH, state)
             local spinAngle = 0.0
             local dockFlash = 0.0
             if pSkin.style == "pine" then
-                -- Пышная несимметричная ёлка: ярусы чуть повёрнуты друг относительно друга для живого силуэта
-                taperXZ = 1.28 - (gy - 1) * 0.13
+                -- Стройная конусная пирамида ёлки: плавное сужение снизу вверх и лёгкий поворот ярусов
+                taperXZ = 1.32 - (gy - 1) * 0.17
                 scaleY = 1.06
                 spinAngle = (gy - 1) * 1.42 + gx * 0.73 + gz * 1.19
             elseif pSkin.style == "snowman" then
@@ -2027,7 +2027,7 @@ function Renderer3D:renderScene(screenW, screenH, state)
                 local cS, sS = math.cos(sa), math.sin(sa)
                 self:_drawMeshTransform(
                     self.meshStar,
-                    { wx, wy + 0.78, wz },
+                    { wx, wy + 0.62, wz },
                     { cS, 0, -sS },
                     { 0, 1.0, 0 },
                     { sS, 0, cS },
@@ -2500,7 +2500,7 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
             -- Собранная пышная 4-ярусная ёлочка в снегу с макушкой-звездой
             for gy = 1, 4 do
                 local matG, meshG = self:_getPieceMaterialAndMesh(itemData, 1, gy)
-                local taper = (1.28 - (gy - 1) * 0.13) * 1.08
+                local taper = (1.32 - (gy - 1) * 0.17) * 1.08
                 local py = -0.68 + (gy - 1) * 0.42
                 local col = (gy % 2 == 1) and itemData.player1Color or itemData.player2Color
                 local angG = angle + (gy - 1) * 1.42
@@ -2522,7 +2522,7 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
             if not isSil then
                 drawPrev(
                     self.meshStar,
-                    { 0.0, 0.96, 0.0 },
+                    { 0.0, 1.18, 0.0 },
                     { ca, 0, -sa }, { 0, 1.0, 0 }, { sa, 0, ca },
                     { 1.00, 0.82, 0.16, 1.0 }, { 0.38, 0.26, 0.04 }, 0.95, 0.0, 1.0, 7.0
                 )

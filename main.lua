@@ -759,6 +759,8 @@ function love.load()
         assert(Config.boardSkins.sweet_cake.rarity == "epic", "Expected sweet_cake epic")
         assert(Config.pieceSkins.nuclear_core.rarity == "epic", "Expected nuclear_core epic")
         assert(Config.pieceSkins.pumpkin_halloween.rarity == "super_rare", "Expected pumpkin_halloween super_rare")
+        assert(Config.boardSkins.forest_glade.rarity == "rare", "Expected forest_glade rare")
+        assert(Config.boardSkins.snowy_winter.rarity == "super_rare", "Expected snowy_winter super_rare")
         assert(Config.boardSkins.chernobyl and Config.boardSkins.chernobyl.rarity == "epic" and Config.boardSkins.chernobyl.forceSquare == true, "Expected Chernobyl epic square-only board")
         assert(not string.find(I18N.t("board_obsidian"), "Скоро") and not string.find(I18N.t("board_obsidian"), "Soon"), "Expected no Soon tag on obsidian_stub")
 

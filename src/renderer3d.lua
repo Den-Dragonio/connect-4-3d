@@ -1012,50 +1012,100 @@ function Renderer3D:_buildPineConeTipMesh(segs)
     return love.graphics.newMesh(VERTEX_FORMAT, verts, "triangles", "static")
 end
 
--- Естественная конусная верхушка ёлки (чистый конус с лёгким рельефом ветвей у основания, полностью закрывает штырь)
+-- Естественная ветвистая конусная верхушка ёлки: мини-ярусы еловых лап (в стиле нижних) + пушистая макушка
 function Renderer3D:_buildPineTopMesh(segs)
     local verts = {}
-    local baseR = 0.50
-    local yBot, yTop = -0.44, 0.72
-    local nSegs = segs or 44
-    local nRings = 8
+    local uSteps = segs or 48
+    local vSteps = 10
 
-    local slope = baseR / (yTop - yBot)
-    local function pt(a, t)
+    local function branchWave(u, v, angOff)
+        local ua = u + angOff
+        local mainBoughs = 0.17 * math.cos(ua * 7.0 + 0.35) + 0.11 * math.sin(ua * 11.0 - 0.85)
+        local subTwigs   = 0.075 * math.cos(ua * 17.0 + 1.40) + 0.045 * math.sin(ua * 29.0 + 0.60)
+        return 1.0 + (mainBoughs + subTwigs) * (0.35 + 0.65 * v)
+    end
+
+    local function addBoughTier(innerR, outerR, yTopT, yBotT, angOff, dropAmt)
+        local function pt(u, v)
+            local cu, su = math.cos(u), math.sin(u)
+            local wave = branchWave(u, v, angOff)
+            local r = innerR + (outerR * wave - innerR) * v
+            local ua = u + angOff
+            local boughSag = 0.040 * math.sin(ua * 7.0 - 0.4) * (v ^ 1.2) + 0.018 * math.cos(ua * 13.0 + 1.1) * v
+            local tipCurl  = 0.032 * math.sin(v * math.pi)
+            local py = yTopT + (yBotT - yTopT) * (v ^ 1.26) + boughSag + tipCurl
+            local eps = 0.05
+            local w1 = branchWave(u + eps, v, angOff)
+            local nx = cu * 0.72 + (w1 - wave) * 1.8 * (-su)
+            local ny = 0.88 + 0.16 * math.cos(ua * 11.0)
+            local nz = su * 0.72 + (w1 - wave) * 1.8 * cu
+            local nl = math.sqrt(nx*nx + ny*ny + nz*nz)
+            return { r * cu, py, r * su, nx/nl, ny/nl, nz/nl }
+        end
+
+        for i = 0, uSteps - 1 do
+            local u0 = (i / uSteps) * math.pi * 2
+            local u1 = ((i + 1) / uSteps) * math.pi * 2
+            for j = 0, vSteps - 1 do
+                local v0, v1 = j / vSteps, (j + 1) / vSteps
+                local p00, p10 = pt(u0, v0), pt(u1, v0)
+                local p11, p01 = pt(u1, v1), pt(u0, v1)
+                table.insert(verts, p00); table.insert(verts, p10); table.insert(verts, p11)
+                table.insert(verts, p00); table.insert(verts, p11); table.insert(verts, p01)
+
+                local d0 = dropAmt * (0.4 + 0.6 * (1.0 - v0))
+                local d1 = dropAmt * (0.4 + 0.6 * (1.0 - v1))
+                table.insert(verts, { p00[1], p00[2] - d0, p00[3], 0, -1, 0 })
+                table.insert(verts, { p11[1], p11[2] - d1, p11[3], 0, -1, 0 })
+                table.insert(verts, { p10[1], p10[2] - d0, p10[3], 0, -1, 0 })
+                table.insert(verts, { p00[1], p00[2] - d0, p00[3], 0, -1, 0 })
+                table.insert(verts, { p01[1], p01[2] - d1, p01[3], 0, -1, 0 })
+                table.insert(verts, { p11[1], p11[2] - d1, p11[3], 0, -1, 0 })
+            end
+        end
+    end
+
+    -- Нижний и верхний мини-ярусы из живых еловых лап (сужаются к верхушке)
+    addBoughTier(0.06, 0.50,  0.14, -0.44, 0.00, 0.08)
+    addBoughTier(0.04, 0.37,  0.42, -0.02, 1.45, 0.06)
+
+    -- Острая ветвистая хвойная макушка на самом верху (закрывает центр и сходится в побег)
+    local tipBaseR, tipBot, tipTop = 0.25, 0.22, 0.68
+    local tipRings = 6
+    local tipSlope = tipBaseR / (tipTop - tipBot)
+    local function tipPt(a, t)
         local c, s = math.cos(a), math.sin(a)
-        -- Лёгкие неровности еловых лапок по краю, сходящие на нет к острому кончику конуса
-        local twigWave = 1.0 + (0.09 * math.cos(a * 7.0) + 0.05 * math.sin(a * 11.0 - 0.5)) * (1.0 - t)
-        local r = baseR * (1.0 - t) * twigWave
-        local y = yBot + (yTop - yBot) * t
-        local nx, ny, nz = c, slope, s
+        local twig = 1.0 + (0.14 * math.cos(a * 7.0 + 2.7) + 0.09 * math.sin(a * 11.0 - 0.3)) * (1.0 - t)
+        local r = tipBaseR * (1.0 - t) * twig
+        local y = tipBot + (tipTop - tipBot) * t
+        local nx, ny, nz = c, tipSlope, s
         local nl = math.sqrt(nx*nx + ny*ny + nz*nz)
         return { c * r, y, s * r, nx/nl, ny/nl, nz/nl }
     end
 
-    for i = 0, nSegs - 1 do
-        local a0 = (i / nSegs) * math.pi * 2
-        local a1 = ((i + 1) / nSegs) * math.pi * 2
-        for j = 0, nRings - 1 do
-            local t0 = j / nRings
-            local t1 = (j + 1) / nRings
-            if j < nRings - 1 then
-                local p00 = pt(a0, t0); local p10 = pt(a1, t0)
-                local p11 = pt(a1, t1); local p01 = pt(a0, t1)
+    for i = 0, uSteps - 1 do
+        local a0 = (i / uSteps) * math.pi * 2
+        local a1 = ((i + 1) / uSteps) * math.pi * 2
+        for j = 0, tipRings - 1 do
+            local t0, t1 = j / tipRings, (j + 1) / tipRings
+            if j < tipRings - 1 then
+                local p00, p10 = tipPt(a0, t0), tipPt(a1, t0)
+                local p11, p01 = tipPt(a1, t1), tipPt(a0, t1)
                 table.insert(verts, p00); table.insert(verts, p10); table.insert(verts, p11)
                 table.insert(verts, p00); table.insert(verts, p11); table.insert(verts, p01)
             else
-                local p00 = pt(a0, t0); local p10 = pt(a1, t0)
+                local p00, p10 = tipPt(a0, t0), tipPt(a1, t0)
                 table.insert(verts, p00)
                 table.insert(verts, p10)
-                table.insert(verts, { 0, yTop, 0, (p00[4]+p10[4])*0.5, 0.8, (p00[6]+p10[6])*0.5 })
+                table.insert(verts, { 0, tipTop, 0, (p00[4]+p10[4])*0.5, 0.85, (p00[6]+p10[6])*0.5 })
             end
         end
-
-        local b0 = pt(a0, 0.0); local b1 = pt(a1, 0.0)
-        table.insert(verts, { 0, yBot, 0, 0, -1, 0 })
-        table.insert(verts, { b0[1], yBot, b0[3], 0, -1, 0 })
-        table.insert(verts, { b1[1], yBot, b1[3], 0, -1, 0 })
+        local b0, b1 = tipPt(a0, 0.0), tipPt(a1, 0.0)
+        table.insert(verts, { 0, tipBot, 0, 0, -1, 0 })
+        table.insert(verts, { b0[1], tipBot, b0[3], 0, -1, 0 })
+        table.insert(verts, { b1[1], tipBot, b1[3], 0, -1, 0 })
     end
+
     return love.graphics.newMesh(VERTEX_FORMAT, verts, "triangles", "static")
 end
 function Renderer3D:_buildStarMesh(outerR, innerR, depth)
@@ -2026,7 +2076,7 @@ function Renderer3D:renderScene(screenW, screenH, state)
                 local cS, sS = math.cos(sa), math.sin(sa)
                 self:_drawMeshTransform(
                     self.meshStar,
-                    { wx, wy + 0.89, wz },
+                    { wx, wy + 0.85, wz },
                     { cS, 0, -sS },
                     { 0, 1.0, 0 },
                     { sS, 0, cS },
@@ -2521,7 +2571,7 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
             if not isSil then
                 drawPrev(
                     self.meshStar,
-                    { 0.0, 1.47, 0.0 },
+                    { 0.0, 1.43, 0.0 },
                     { ca, 0, -sa }, { 0, 1.0, 0 }, { sa, 0, ca },
                     { 1.00, 0.82, 0.16, 1.0 }, { 0.38, 0.26, 0.04 }, 0.95, 0.0, 1.0, 7.0
                 )

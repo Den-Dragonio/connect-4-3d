@@ -769,10 +769,12 @@ function love.load()
         currentScreen = "game"
         -- Проверка редкостей, сортировок магазина, Чернобыля и дневного лимита монет (100/день)
         assert(Config.boardSkins.gold_ach.rarity == "super_rare", "Expected gold_ach super_rare")
+        assert(Config.boardSkins.gold_ach.style == "gold", "Expected gold_ach gold PBR style")
         assert(Config.boardSkins.sweet_cake.rarity == "epic", "Expected sweet_cake epic")
         assert(Config.pieceSkins.nuclear_core.rarity == "epic", "Expected nuclear_core epic")
         assert(Config.pieceSkins.pumpkin_halloween.rarity == "super_rare", "Expected pumpkin_halloween super_rare")
         assert(Config.boardSkins.forest_glade.rarity == "rare", "Expected forest_glade rare")
+        assert(Config.boardSkins.forest_glade.upgradeable == nil, "Expected forest_glade butterfly upgrade mention removed")
         assert(Config.boardSkins.snowy_winter.rarity == "super_rare", "Expected snowy_winter super_rare")
         assert(Config.boardSkins.chernobyl and Config.boardSkins.chernobyl.rarity == "epic" and Config.boardSkins.chernobyl.forceSquare == true, "Expected Chernobyl epic square-only board")
         assert(not string.find(I18N.t("board_obsidian"), "Скоро") and not string.find(I18N.t("board_obsidian"), "Soon"), "Expected no Soon tag on obsidian_stub")
@@ -832,6 +834,35 @@ function love.load()
             pegColor = Config.boardSkins.chernobyl.pegColor,
             woodStrength = Config.boardSkins.chernobyl.woodStrength
         }, 0.5)
+
+        -- Проверка PBR-рендера золотого/металлического/мраморного полей и металлических фишек
+        for _, pair in ipairs({
+            { board = "gold_ach", piece = "gold_silver_rings" },
+            { board = "metal_steel", piece = "iron_blocks" },
+            { board = "obsidian_stub", piece = "thin_rings" },
+        }) do
+            Config.activeBoardSkin = pair.board
+            Config.activePieceSkin = pair.piece
+            local bSkin = Config.boardSkins[pair.board]
+            local pSkin = Config.pieceSkins[pair.piece]
+            renderer:renderScene(800, 600, {
+                config = Config, logic = gameLogic, maxPly = #gameLogic.moveHistory,
+                clipOffsetX = 0.0, clipOffsetY = 0.04,
+                boardSkinOverride = bSkin
+            })
+            renderer:renderShopPreview(0, 0, 120, 120, 800, 600, "board_skin", {
+                isRound = false, style = bSkin.style,
+                baseColor = bSkin.baseColor,
+                pegColor = bSkin.pegColor,
+                woodStrength = bSkin.woodStrength
+            }, 0.5)
+            renderer:renderShopPreview(0, 0, 120, 120, 800, 600, "piece_skin", {
+                style = pSkin.style,
+                player1Color = pSkin.player1Color,
+                player2Color = pSkin.player2Color,
+                woodStrength = pSkin.woodStrength
+            }, 0.5)
+        end
 
         for _, skinId in ipairs({ "pine_tree", "snowman", "iron_blocks", "skyscraper_blocks", "billiard_balls", "classic_bw" }) do
             assert(Config.pieceSkins[skinId] ~= nil, "Missing expected piece skin: " .. skinId)

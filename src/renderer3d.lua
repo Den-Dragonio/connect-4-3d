@@ -194,6 +194,21 @@ local SHADER_PIXEL = [[
         return smoothstep(0.095, 0.062, d) * smoothstep(0.922, 0.935, abs(sn.z));
     }
 
+    vec3 sampleStudioEnv(vec3 R) {
+        float skyGrad = smoothstep(-0.18, 0.72, R.y);
+        vec3 darkFloor = vec3(0.09, 0.10, 0.13);
+        vec3 horizon   = vec3(0.44, 0.48, 0.56);
+        vec3 zenith    = vec3(0.84, 0.89, 0.97);
+        vec3 env = mix(darkFloor, horizon, smoothstep(-0.32, 0.04, R.y));
+        env = mix(env, zenith, skyGrad);
+        float soft1 = smoothstep(0.52, 0.92, dot(R, normalize(vec3(0.48, 0.72, 0.50))));
+        float soft2 = smoothstep(0.58, 0.93, dot(R, normalize(vec3(-0.66, 0.54, -0.52))));
+        float horizBand = exp(-abs(R.y - 0.06) * 8.5);
+        float strip = exp(-abs(dot(R.xz, vec2(0.707, -0.707)) - 0.28) * 14.0) * smoothstep(0.08, 0.72, R.y);
+        env += vec3(1.00, 0.98, 0.94) * (soft1 * 0.95 + soft2 * 0.58 + horizBand * 0.52 + strip * 0.78);
+        return env;
+    }
+
     vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords) {
         vec3 N = normalize(v_normal);
         vec3 V = normalize(u_eyePos - v_worldPos);
@@ -284,13 +299,12 @@ local SHADER_PIXEL = [[
             surfaceAlbedo = mix(u_baseColor.rgb * 0.62, u_baseColor.rgb * 1.28, barkVal);
             specFactor = 0.16;
         } else if (u_materialType > 6.5 && u_materialType < 7.5) {
-            // 7: Шлифованная сталь и хром (Brushed Steel & Chrome Metal)
-            float radialGrooves = sin(length(v_localPos.xz) * 140.0) * 0.5 + 0.5;
-            float microBrush    = woodNoise3(vec3(v_localPos.x * 65.0, v_localPos.y * 12.0, v_localPos.z * 65.0));
-            float metalSheen    = mix(radialGrooves, microBrush, 0.55);
-            vec3 envReflect     = mix(vec3(0.32, 0.36, 0.42), vec3(0.88, 0.93, 1.00), clamp(N.y * 0.5 + 0.5, 0.0, 1.0));
-            surfaceAlbedo = mix(u_baseColor.rgb * (0.82 + 0.32 * metalSheen), envReflect * u_baseColor.rgb * 1.35, 0.38);
-            specFactor = 0.95;
+            // 7: Настоящий полированный металл (Сталь, Хром, Серебро, Бронза — PBR-отражения среды)
+            float radialGrooves = sin(length(v_localPos.xz) * 150.0) * 0.5 + 0.5;
+            float microBrush    = woodNoise3(vec3(v_localPos.x * 72.0, v_localPos.y * 14.0, v_localPos.z * 72.0));
+            float metalSheen    = mix(radialGrooves, microBrush, 0.52);
+            surfaceAlbedo = u_baseColor.rgb * (0.86 + 0.24 * metalSheen);
+            specFactor = 1.00;
         } else if (u_materialType > 7.5 && u_materialType < 8.5) {
             // 8: Сладкий Торт / Пирог с клубнично-сливочной глазурью, бисквитом и посыпкой (Sweet Cake Base)
             if (N.y > 0.45) {
@@ -629,6 +643,23 @@ local SHADER_PIXEL = [[
             vec3 medCol = mix(vec3(0.98, 0.97, 0.94), vec3(0.05, 0.05, 0.07), digit);
             surfaceAlbedo = mix(col, medCol, spot);
             specFactor = 0.98;
+        } else if (u_materialType > 25.5 && u_materialType < 26.5) {
+            // 26: 24K Зеркальное Золото (слиток, ювелирные кольца, позолоченные штыри)
+            float fineGrain = woodNoise3(vec3(v_worldPos.x * 38.0, v_worldPos.y * 18.0, v_worldPos.z * 38.0));
+            float edgeBevel = smoothstep(0.42, 0.48, max(abs(v_localPos.x), abs(v_localPos.z))) * step(u_woodScale, 1.45) * step(0.55, N.y);
+            surfaceAlbedo = u_baseColor.rgb * (0.94 + 0.14 * fineGrain + 0.10 * edgeBevel);
+            specFactor = 1.00;
+        } else if (u_materialType > 26.5 && u_materialType < 27.5) {
+            // 27: Полированный Чёрный Мрамор (Nero Marquina с белыми и золотыми кальцитовыми прожилками)
+            float mCloud = woodNoise3(v_worldPos * 2.4) * 0.65 + woodNoise3(v_worldPos * 6.8) * 0.35;
+            vec3 stoneBase = mix(vec3(0.025, 0.027, 0.034), vec3(0.085, 0.090, 0.112), mCloud);
+            float warp1 = woodNoise3(v_worldPos * 1.8) * 2.6 + woodNoise3(v_worldPos * 5.2) * 0.85;
+            float vein1 = 1.0 - smoothstep(0.0, 0.09, abs(sin(v_worldPos.x * 1.9 + v_worldPos.z * 1.45 + warp1)));
+            float vein2 = 1.0 - smoothstep(0.0, 0.06, abs(sin(v_worldPos.x * 3.1 - v_worldPos.z * 2.4 + warp1 * 1.35 + 1.4)));
+            vec3 col = mix(stoneBase, vec3(0.84, 0.87, 0.92), vein1 * 0.85);
+            col = mix(col, vec3(0.80, 0.65, 0.34), vein2 * 0.48 * (1.0 - vein1 * 0.6));
+            surfaceAlbedo = col;
+            specFactor = 0.98;
         }
 
         vec3 L1 = normalize(vec3(0.55, 0.78, 0.48));
@@ -641,15 +672,53 @@ local SHADER_PIXEL = [[
         vec3 ambient = mix(vec3(0.19, 0.18, 0.22), vec3(0.46, 0.44, 0.48), hemi);
 
         vec3 H1 = normalize(L1 + V);
-        float spec = pow(max(dot(N, H1), 0.0), 32.0) * specFactor;
+        float ndv = max(dot(N, V), 0.0);
+        vec3 R = reflect(-V, N);
+        vec3 litColor;
 
-        float fresnel = pow(1.0 - max(dot(N, V), 0.0), 3.2) * 0.12;
-
-        vec3 litColor = surfaceAlbedo * (ambient + diff1 * 0.74 + diff2 * 0.25)
-                      + vec3(spec)
-                      + vec3(fresnel * 0.7, fresnel * 0.65, fresnel * 0.6)
-                      + extraGlow
-                      + u_emissive;
+        if (u_materialType > 6.5 && u_materialType < 7.5) {
+            // Металлик PBR (Сталь / Хром / Серебро / Бронза)
+            vec3 envCol = sampleStudioEnv(R);
+            float sharpSpec = pow(max(dot(N, H1), 0.0), 56.0);
+            float metalRim  = pow(1.0 - ndv, 3.2);
+            vec3 tintSpec   = mix(surfaceAlbedo, vec3(1.0), 0.45);
+            litColor = surfaceAlbedo * (0.14 + 0.28 * diff1 + 0.12 * diff2)
+                     + envCol * surfaceAlbedo * 0.98
+                     + tintSpec * sharpSpec * 1.10
+                     + surfaceAlbedo * metalRim * 0.42
+                     + extraGlow + u_emissive;
+        } else if (u_materialType > 25.5 && u_materialType < 26.5) {
+            // 24K Золото PBR (тёплое янтарно-золотое отражение и чистый блик)
+            vec3 envCol = sampleStudioEnv(R);
+            float sharpSpec = pow(max(dot(N, H1), 0.0), 64.0);
+            float goldRim   = pow(1.0 - ndv, 3.0);
+            vec3 deepGold   = vec3(0.42, 0.24, 0.02);
+            vec3 brightGold = vec3(1.00, 0.92, 0.48);
+            vec3 goldEnv    = mix(deepGold, brightGold * surfaceAlbedo * 1.28, clamp(envCol.r * 0.78, 0.0, 1.2));
+            litColor = surfaceAlbedo * (0.16 + 0.22 * diff1)
+                     + goldEnv * 0.96
+                     + vec3(1.00, 0.95, 0.68) * sharpSpec * 1.25
+                     + vec3(1.00, 0.84, 0.30) * goldRim * 0.48
+                     + extraGlow + u_emissive;
+        } else if (u_materialType > 26.5 && u_materialType < 27.5) {
+            // Полированный Чёрный Мрамор (лаковое диэлектрическое отражение поверх камня)
+            vec3 envCol = sampleStudioEnv(R);
+            float coatFres = 0.07 + 0.48 * pow(1.0 - ndv, 3.8);
+            float sharpSpec = pow(max(dot(N, H1), 0.0), 72.0);
+            vec3 diffuseStone = surfaceAlbedo * (ambient * 0.9 + diff1 * 0.68 + diff2 * 0.22);
+            litColor = diffuseStone * (1.0 - coatFres * 0.45)
+                     + envCol * coatFres * 0.85
+                     + vec3(0.95, 0.97, 1.00) * sharpSpec * 1.15
+                     + extraGlow + u_emissive;
+        } else {
+            float spec = pow(max(dot(N, H1), 0.0), 32.0) * specFactor;
+            float fresnel = pow(1.0 - ndv, 3.2) * 0.12;
+            litColor = surfaceAlbedo * (ambient + diff1 * 0.74 + diff2 * 0.25)
+                     + vec3(spec)
+                     + vec3(fresnel * 0.7, fresnel * 0.65, fresnel * 0.6)
+                     + extraGlow
+                     + u_emissive;
+        }
 
         return vec4(litColor, outAlpha);
     }
@@ -1710,6 +1779,10 @@ function Renderer3D:_getPieceMaterialAndMesh(pieceSkin, player, gy)
         return 10.0, self.meshSphere
     elseif style == "metal" then
         return 7.0, self.meshTorus
+    elseif style == "metal_ring" then
+        return (player == 1) and 26.0 or 7.0, self.meshTorus
+    elseif style == "thin_ring" then
+        return 7.0, self.meshThinTorus
     elseif style == "iron_block" then
         return 7.0, self.meshSquareBlock
     elseif style == "skyscraper_block" then
@@ -1791,6 +1864,8 @@ function Renderer3D:renderScene(screenW, screenH, state)
     local bStyle     = boardSkin.style or "wood"
     local isForestBoard     = (bStyle == "forest")
     local isMetalBoard      = (bStyle == "metal")
+    local isGoldBoard       = (bStyle == "gold")
+    local isStoneBoard      = (bStyle == "stone" or bStyle == "marble")
     local isCakeBoard       = (bStyle == "cake")
     local isSnowyBoard      = (bStyle == "snow" or bStyle == "snowy")
     local isJapaneseBoard   = (bStyle == "japanese_roof")
@@ -1801,6 +1876,8 @@ function Renderer3D:renderScene(screenW, screenH, state)
     local isRound   = (state.config.boardShape == "round") and (not boardSkin.forceSquare) and (not isChernobylBoard) and (not isManhattanBoard) and (not isBilliardBoard)
     local baseMatType = isForestBoard and 5.0
         or (isMetalBoard and 7.0)
+        or (isGoldBoard and 26.0)
+        or (isStoneBoard and 27.0)
         or (isCakeBoard and 8.0)
         or (isSnowyBoard and 15.0)
         or (isJapaneseBoard and 13.0)
@@ -1810,12 +1887,16 @@ function Renderer3D:renderScene(screenW, screenH, state)
         or 0.0
     local pegMatType = isForestBoard and 6.0
         or ((isMetalBoard or isSkyscraperBoard or isManhattanBoard) and 7.0)
+        or (isGoldBoard and 26.0)
+        or (isStoneBoard and 27.0)
         or (isCakeBoard and 9.0)
         or (isChernobylBoard and 21.0)
         or (isBilliardBoard and 23.0)
         or 0.0
     local rimMatType = isForestBoard and 6.0
         or ((isMetalBoard or isSkyscraperBoard or isChernobylBoard) and 7.0)
+        or (isGoldBoard and 26.0)
+        or (isStoneBoard and 27.0)
         or (isCakeBoard and 9.0)
         or (isJapaneseBoard and 13.0)
         or (isBilliardBoard and 22.0)
@@ -1929,6 +2010,8 @@ function Renderer3D:renderScene(screenW, screenH, state)
             7.0
         )
     else
+        local boardSpecular = (isMetalBoard or isGoldBoard) and 0.96 or (isStoneBoard and 0.90 or 0.22)
+        local rimSpecular = (isMetalBoard or isGoldBoard) and 0.85 or (isStoneBoard and 0.82 or 0.18)
         self:_drawMeshTransform(
             baseMesh,
             { 0.0, -baseH * 0.5 + 0.02, 0.0 },
@@ -1937,7 +2020,7 @@ function Renderer3D:renderScene(screenW, screenH, state)
             { 0, 0, baseSpan },
             boardSkin.baseColor,
             { 0, 0, 0 },
-            isMetalBoard and 0.78 or 0.22,
+            boardSpecular,
             boardSkin.woodStrength,
             0.75,
             baseMatType
@@ -1952,7 +2035,7 @@ function Renderer3D:renderScene(screenW, screenH, state)
             { 0, 0, rimSpan },
             { boardSkin.baseColor[1] * 0.72, boardSkin.baseColor[2] * 0.72, boardSkin.baseColor[3] * 0.72, 1.0 },
             { 0, 0, 0 },
-            isMetalBoard and 0.65 or 0.18,
+            rimSpecular,
             boardSkin.woodStrength,
             0.75,
             rimMatType
@@ -2088,7 +2171,7 @@ function Renderer3D:renderScene(screenW, screenH, state)
                     { 0, 0, pegScaleXZ },
                     pColor,
                     pEmissive,
-                    (isMetalBoard or isSkyscraperBoard or isBilliardBoard) and 0.85 or 0.32,
+                    (isMetalBoard or isGoldBoard or isStoneBoard or isSkyscraperBoard or isBilliardBoard) and 0.92 or 0.32,
                     boardSkin.woodStrength,
                     1.35,
                     pegMatType
@@ -2870,6 +2953,8 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
         local span = 1.45
         local isForest = (bStyle == "forest")
         local isMetal  = (bStyle == "metal")
+        local isGold   = (bStyle == "gold")
+        local isStone  = (bStyle == "stone" or bStyle == "marble")
         local isCake   = (bStyle == "cake")
         local isSnowy  = (bStyle == "snow" or bStyle == "snowy")
         local isJap    = (bStyle == "japanese_roof")
@@ -2877,6 +2962,8 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
         local isBill   = (bStyle == "billiard")
         local matId    = isForest and 5.0
             or (isMetal and 7.0)
+            or (isGold and 26.0)
+            or (isStone and 27.0)
             or (isCake and 8.0)
             or (isSnowy and 15.0)
             or (isJap and 13.0)
@@ -2892,7 +2979,7 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
             { -sa * span, 0, ca * span },
             itemData.baseColor,
             { 0, 0, 0 },
-            isMetal and 0.82 or 0.25,
+            (isMetal or isGold or isStone) and 0.96 or 0.25,
             itemData.woodStrength or 0.9,
             1.2,
             matId
@@ -2911,10 +2998,10 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
                 { 0, 0, pegScale },
                 itemData.pegColor,
                 { 0, 0, 0 },
-                (isMetal or isCity or isBill) and 0.90 or 0.3,
+                (isMetal or isGold or isStone or isCity or isBill) and 0.95 or 0.3,
                 itemData.woodStrength or 0.9,
                 1.5,
-                isForest and 6.0 or ((isMetal or isCity) and 7.0 or (isCake and 9.0 or (isChern and 21.0 or (isBill and 23.0 or 0.0))))
+                isForest and 6.0 or ((isMetal or isCity) and 7.0 or (isGold and 26.0 or (isStone and 27.0 or (isCake and 9.0 or (isChern and 21.0 or (isBill and 23.0 or 0.0))))))
             )
             if isManh and not isSil then
                 local prevPhases = { 0.0, 2.3, 4.1, 1.2 }

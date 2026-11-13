@@ -171,7 +171,7 @@ local SHADER_PIXEL = [[
             surfaceAlbedo = mix(doughColor, glazeColor, icingMask);
             specFactor = mix(0.14, 0.92, icingMask);
         } else if (u_materialType > 1.5 && u_materialType < 2.5) {
-            // 2: Пушистая живая хвоя с неравномерной припорошенностью снегом и тёплыми огоньками
+            // 2: Пушистая живая хвоя с лёгкой припорошенностью снегом (без гирлянды)
             float rFrac = clamp(length(v_localPos.xz) / 0.55, 0.0, 1.0);
             float ang = atan(v_localPos.z, v_localPos.x);
             float needle = woodNoise3(vec3(v_localPos.x * 42.0, v_localPos.y * 28.0, v_localPos.z * 42.0));
@@ -179,31 +179,18 @@ local SHADER_PIXEL = [[
             float boughAO = mix(0.28, 1.02, pow(rFrac, 0.65));
             vec3 pineCol = u_baseColor.rgb * boughAO * (0.64 + 0.26 * needle + 0.18 * fineFrond);
 
-            // Припорошенность снегом на верхних гранях и кончиках еловых лап
-            float snowCluster = woodNoise3(v_localPos * 9.5 + vec3(1.7, 3.1, 2.4)) * 0.62
-                              + woodNoise3(v_localPos * 24.0 + vec3(4.2, 0.9, 5.1)) * 0.38;
-            float upFacing = smoothstep(0.12, 0.68, N.y);
-            float branchTipBias = smoothstep(0.18, 0.85, rFrac) * 0.42 + smoothstep(0.10, 0.55, v_localPos.y) * 0.25;
-            float snowMask = smoothstep(0.42, 0.68, snowCluster + branchTipBias * 0.45) * upFacing;
-            float rimFrost = smoothstep(0.68, 0.98, rFrac) * smoothstep(0.05, 0.50, N.y) * smoothstep(0.32, 0.72, needle);
-            snowMask = clamp(max(snowMask, rimFrost * 0.85), 0.0, 0.94);
+            // Лёгкая, деликатная припорошенность снегом только по верхним кончикам хвои
+            float snowCluster = woodNoise3(v_localPos * 12.0 + vec3(1.7, 3.1, 2.4)) * 0.60
+                              + woodNoise3(v_localPos * 32.0 + vec3(4.2, 0.9, 5.1)) * 0.40;
+            float upFacing = smoothstep(0.32, 0.82, N.y);
+            float tipBias = smoothstep(0.42, 0.96, rFrac) * 0.22;
+            float dustPatch = smoothstep(0.60, 0.86, snowCluster + tipBias) * upFacing;
+            float rimFrost = smoothstep(0.76, 1.00, rFrac) * smoothstep(0.25, 0.70, N.y) * smoothstep(0.52, 0.86, needle);
+            float snowMask = clamp(max(dustPatch * 0.58, rimFrost * 0.44), 0.0, 0.58);
 
-            // Мини-шарики/огоньки ближе к краям ярусов
-            float seg = mod(ang + 3.14159, 1.256637) - 0.628318;
-            float dBauble = length(vec3(rFrac - 0.72, seg * 0.74, (v_localPos.y + 0.08) * 1.45));
-            if (rFrac > 0.52 && dBauble < 0.092) {
-                float idx = floor((ang + 3.14159) / 1.256637);
-                float isAlt = mod(idx, 2.0);
-                float twinkle = 0.65 + 0.35 * sin(u_time * 3.6 + idx * 1.7 + v_worldPos.y * 4.0);
-                vec3 baubleCol = (isAlt < 0.5) ? vec3(1.00, 0.80, 0.18) : vec3(0.96, 0.20, 0.22);
-                surfaceAlbedo = mix(baubleCol, vec3(0.95, 0.97, 1.00), snowMask * 0.25);
-                extraGlow += baubleCol * (0.30 * twinkle);
-                specFactor = 0.92;
-            } else {
-                vec3 snowCol = mix(vec3(0.86, 0.92, 0.99), vec3(0.98, 0.99, 1.00), 0.55 + 0.45 * needle);
-                surfaceAlbedo = mix(pineCol, snowCol, snowMask);
-                specFactor = mix(0.14, 0.48, snowMask);
-            }
+            vec3 snowCol = mix(vec3(0.88, 0.93, 0.99), vec3(0.98, 0.99, 1.00), 0.55 + 0.45 * needle);
+            surfaceAlbedo = mix(pineCol, snowCol, snowMask);
+            specFactor = mix(0.14, 0.34, snowMask);
         } else if (u_materialType > 2.5 && u_materialType < 3.5) {
             // 3: Ядерный Уран (Glowing & Blinking Radioactive Uranium-235)
             float radPulse = 0.55 + 0.45 * sin(u_time * 5.2);

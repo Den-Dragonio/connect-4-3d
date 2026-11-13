@@ -422,8 +422,8 @@ local Config = {
             nameKey = "skin_skyscraper_blocks",
             style = "skyscraper_block",
             rarity = "epic",
-            player1Color = { 0.92, 0.94, 0.98, 1.0 }, -- Lit Skyscraper Blocks (lights ON)
-            player2Color = { 0.09, 0.11, 0.15, 1.0 }, -- Dark Skyscraper Blocks (lights OFF)
+            player1Color = { 0.82, 0.86, 0.94, 1.0 }, -- Lit Skyscraper Blocks (lights ON)
+            player2Color = { 0.22, 0.26, 0.34, 1.0 }, -- Unlit Skyscraper Blocks (same building style, lights OFF)
             woodStrength = 0.0,
             specular = 0.88,
             unlocked = false,
@@ -449,8 +449,8 @@ local Config = {
             nameKey = "skin_snowman",
             style = "snowman",
             rarity = "legendary",
-            player1Color = { 0.96, 0.98, 1.00, 1.0 }, -- Snow White
-            player2Color = { 0.98, 0.86, 0.28, 1.0 }, -- Warm Golden Yellow
+            player1Color = { 0.99, 0.99, 1.00, 1.0 }, -- Pure Snow White
+            player2Color = { 0.56, 0.60, 0.66, 1.0 }, -- Cool Grey Snowman
             woodStrength = 0.20,
             specular = 0.38,
             unlocked = false,
@@ -1034,32 +1034,19 @@ function Config.getSortedOrder(orderList, lookupMap, sortMode)
         table.insert(out, id)
         idxMap[id] = i
     end
-    if not sortMode or sortMode == "rarity" then
-        table.sort(out, function(a, b)
-            local sa, sb = lookupMap[a], lookupMap[b]
-            local ra = (sa and sa.underRework) and 99 or (Config.RARITY_RANK[sa and sa.rarity or "common"] or 1)
-            local rb = (sb and sb.underRework) and 99 or (Config.RARITY_RANK[sb and sb.rarity or "common"] or 1)
-            if ra ~= rb then return ra < rb end
-            return (idxMap[a] or 0) < (idxMap[b] or 0)
-        end)
-    elseif sortMode == "price_asc" or sortMode == "price_desc" then
-        local isAsc = (sortMode == "price_asc")
-        table.sort(out, function(a, b)
-            local sa, sb = lookupMap[a], lookupMap[b]
-            local wa = (sa and sa.underRework) and 1 or 0
-            local wb = (sb and sb.underRework) and 1 or 0
-            if wa ~= wb then return wa < wb end
-            local pa = (sa and sa.price) or 0
-            local pb = (sb and sb.price) or 0
-            if pa ~= pb then
-                if isAsc then return pa < pb else return pa > pb end
-            end
-            local ra = Config.RARITY_RANK[sa and sa.rarity or "common"] or 1
-            local rb = Config.RARITY_RANK[sb and sb.rarity or "common"] or 1
-            if ra ~= rb then return ra < rb end
-            return (idxMap[a] or 0) < (idxMap[b] or 0)
-        end)
-    end
+    local isDesc = (sortMode == "rarity_desc")
+    table.sort(out, function(a, b)
+        local sa, sb = lookupMap[a], lookupMap[b]
+        local wa = (sa and sa.underRework) and 1 or 0
+        local wb = (sb and sb.underRework) and 1 or 0
+        if wa ~= wb then return wa < wb end
+        local ra = Config.RARITY_RANK[sa and sa.rarity or "common"] or 1
+        local rb = Config.RARITY_RANK[sb and sb.rarity or "common"] or 1
+        if ra ~= rb then
+            if isDesc then return ra > rb else return ra < rb end
+        end
+        return (idxMap[a] or 0) < (idxMap[b] or 0)
+    end)
     return out
 end
 

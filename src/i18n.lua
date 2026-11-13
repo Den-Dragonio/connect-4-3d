@@ -139,18 +139,18 @@ local I18N = {
             rules_title = "Game Rules & Controls",
             rules_body =
                 "OBJECTIVE:\n" ..
-                "• The board has 16 vertical pegs arranged in a 4x4 grid (columns a-d, rows 1-4), each holding up to 4 torus pieces in height (levels 1-4).\n" ..
-                "• White always moves first. Players alternate placing one piece per turn onto any peg.\n" ..
-                "• Connect 4 pieces of your color in a straight line — horizontally, vertically, flat diagonal, or 3D space diagonal — to win!\n" ..
-                "• Moves are recorded as <column><row>.<height> (e.g. a1.1).\n" ..
-                "• In Offline, LAN & Online PvP modes, each player has a 5:00 timer.\n\n" ..
+                "- The board has 16 vertical pegs arranged in a 4x4 grid (columns a-d, rows 1-4), each holding up to 4 pieces in height (levels 1-4).\n" ..
+                "- White always moves first. Players alternate placing one piece per turn onto any peg.\n" ..
+                "- Connect 4 pieces of your color in a straight line — horizontally, vertically, flat diagonal, or 3D space diagonal — to win!\n" ..
+                "- Moves are recorded as <column><row>.<height> (e.g. a1.1).\n" ..
+                "- In Offline, LAN & Online PvP modes, each player has a 5:00 timer.\n\n" ..
                 "CONTROLS:\n" ..
-                "• Left Click on a peg — Drop piece onto the highlighted peg\n" ..
-                "• Right/Left Mouse Drag or WASD (ЦФЫВ) — Rotate 3D camera\n" ..
-                "• Arrow Keys (← / → / ↑ / ↓) — Rewind & step through moves (← -1, → +1, ↑ latest, ↓ 1st move)\n" ..
-                "• Z / X (Я / Ч) or Mouse Wheel — Zoom camera In / Out (Wheel on Move Log scrolls moves)\n" ..
-                "• F (А) after victory — Hide/show result window to inspect the final position\n" ..
-                "• R (К) — Restart match   |   Esc — Return to Main Menu",
+                "- Left Click on a peg — Place piece onto the highlighted peg\n" ..
+                "- Drag Mouse or WASD — Rotate 3D camera\n" ..
+                "- Arrow Keys (Left / Right / Up / Down) — Rewind & step through moves\n" ..
+                "- Z / X or Mouse Wheel — Zoom camera In / Out (Wheel on Move Log scrolls moves)\n" ..
+                "- F after victory — Hide/show result window to inspect the final position\n" ..
+                "- R — Restart match   |   Esc — Return to Main Menu",
 
             -- Shop
             tab_pieces = "PIECES",
@@ -170,9 +170,8 @@ local I18N = {
             rarity_super_rare = "Super Rare",
             rarity_rare = "Rare",
             rarity_common = "Common",
-            shop_sort_rarity = "Sort: Rarity",
-            shop_sort_cheap = "Price: Low -> High",
-            shop_sort_expensive = "Price: High -> Low",
+            shop_sort_rarity_asc = "Sort: Rarity (Low -> High)",
+            shop_sort_rarity_desc = "Sort: Rarity (High -> Low)",
             daily_coins_earned = "+%d Coins  •  Daily: %d / %d",
             daily_coins_status = "Daily Coins: %d / %d",
             daily_coins_cap_reached = "Daily limit 100/100 reached!",
@@ -442,28 +441,29 @@ local I18N = {
             rules_btn = "Правила игры и управление",
 
             rules_title = "Правила игры и управление",
+            rules_title = "Правила игры и управление",
             rules_body =
-                "🎯 ЦЕЛЬ ИГРЫ (4×4×4):\n" ..
-                "• Поле состоит из 16 вертикальных штырей 4×4 (ряды a–d, линии 1–4), на каждый помещается до 4 фишек в высоту (уровни 1–4).\n" ..
-                "• ⚪ Белые всегда ходят первыми, ⚫ Чёрные — вторыми.\n" ..
-                "• Побеждает тот, кто первым соберёт 4 свои фишки в прямую линию (76 возможных линий):\n" ..
-                "   1️⃣ По вертикали на одном штыре\n" ..
-                "   2️⃣ По горизонтали (вдоль ряда или линии)\n" ..
-                "   3️⃣ По плоской диагонали на одном уровне или вертикальной плоскости\n" ..
-                "   4️⃣ По главной 3D-диагонали через все 4 уровня высоты!\n\n" ..
-                "⚡ РЕЖИМЫ ПРАВИЛ:\n" ..
-                "• 🪨 Классика (Гравитация): фишка падает на самый нижний свободный уровень штыря.\n" ..
-                "• 🕊️ Вольный режим: фишку можно ставить на ЛЮБОЙ свободный уровень (1–4) прямо в воздухе! При наведении показывается полупрозрачный призрак.\n\n" ..
-                "⏱️ КОНТРОЛЬ ВРЕМЕНИ И ELO:\n" ..
-                "• 🔫 Пуля (1:00) и ⚡ Блиц (5:00) имеют отдельные рейтинги ELO для Классики и Вольного режима (итого 4 рейтинга).\n" ..
-                "• 🏆 Турниры: Швейцарская система (1 / 0.5 / 0 очка) или Турнирная сетка на вылет по коду комнаты.\n\n" ..
-                "🎮 УПРАВЛЕНИЕ:\n" ..
-                "• 🖱️ ЛКМ по штырю — Поставить фишку\n" ..
-                "• 🔄 Зажать мышь / WASD (ЦФЫВ) — Вращать 3D-камеру\n" ..
-                "• ⏪ Стрелки (← / → / ↑ / ↓) — Листать историю ходов\n" ..
-                "• 🔍 Z / X или Колесико — Приближение камеры\n" ..
-                "• 👁️ F (А) после партии — Скрыть окно результата и осмотреть доску\n" ..
-                "• 🔁 R (К) — Рестарт   |   Esc — Меню",
+                "ЦЕЛЬ ИГРЫ (4x4x4):\n" ..
+                "- Поле состоит из 16 вертикальных штырей 4x4 (ряды a-d, линии 1-4), на каждый помещается до 4 фишек в высоту (уровни 1-4).\n" ..
+                "- Белые всегда ходят первыми, Чёрные — вторыми.\n" ..
+                "- Побеждает тот, кто первым соберёт 4 свои фишки в прямую линию (76 возможных линий):\n" ..
+                "   1. По вертикали на одном штыре\n" ..
+                "   2. По горизонтали (вдоль ряда или линии)\n" ..
+                "   3. По плоской диагонали на одном уровне или вертикальной плоскости\n" ..
+                "   4. По главной 3D-диагонали через все 4 уровня высоты!\n\n" ..
+                "РЕЖИМЫ ПРАВИЛ:\n" ..
+                "- Классика (Гравитация): фишка падает на самый нижний свободный уровень штыря.\n" ..
+                "- Вольный режим: фишку можно ставить на ЛЮБОЙ свободный уровень (1-4) прямо в воздухе! При наведении показывается полупрозрачный призрак.\n\n" ..
+                "КОНТРОЛЬ ВРЕМЕНИ И ELO:\n" ..
+                "- Пуля (1:00) и Блиц (5:00) имеют отдельные рейтинги ELO для Классики и Вольного режима (итого 4 рейтинга).\n" ..
+                "- Турниры: Швейцарская система (1 / 0.5 / 0 очка) или Турнирная сетка на вылет по коду комнаты.\n\n" ..
+                "УПРАВЛЕНИЕ:\n" ..
+                "- ЛКМ по штырю — Поставить фишку\n" ..
+                "- Зажать мышь / WASD (ЦФЫВ) — Вращать 3D-камеру\n" ..
+                "- Стрелки (Влево / Вправо / Вверх / Вниз) — Листать историю ходов\n" ..
+                "- Z / X или Колесико — Приближение камеры\n" ..
+                "- F (А) после партии — Скрыть окно результата и осмотреть доску\n" ..
+                "- R (К) — Рестарт   |   Esc — Меню",
 
             tab_pieces = "ФИШКИ",
             tab_board = "ПОЛЕ",
@@ -482,9 +482,8 @@ local I18N = {
             rarity_super_rare = "Сверхредкий",
             rarity_rare = "Редкий",
             rarity_common = "Обычный",
-            shop_sort_rarity = "Сорт.: По редкости",
-            shop_sort_cheap = "Цена: Дешёвые -> Дорогие",
-            shop_sort_expensive = "Цена: Дорогие -> Дешёвые",
+            shop_sort_rarity_asc = "Редкость: По возрастанию",
+            shop_sort_rarity_desc = "Редкость: По убыванию",
             daily_coins_earned = "+%d монет  •  За день: %d / %d",
             daily_coins_status = "Монет за сегодня: %d / %d",
             daily_coins_cap_reached = "Дневной лимит 100/100 достигнут!",
@@ -772,9 +771,8 @@ local I18N = {
             rarity_super_rare = "Super Rare",
             rarity_rare = "Rare",
             rarity_common = "Commun",
-            shop_sort_rarity = "Tri : Rareté",
-            shop_sort_cheap = "Prix : Croissant",
-            shop_sort_expensive = "Prix : Décroissant",
+            shop_sort_rarity_asc = "Rareté : Croissante",
+            shop_sort_rarity_desc = "Rareté : Décroissante",
             daily_coins_earned = "+%d pièces  •  Aujourd'hui : %d / %d",
             daily_coins_status = "Pièces du jour : %d / %d",
             daily_coins_cap_reached = "Limite quotidienne 100/100 atteinte !",

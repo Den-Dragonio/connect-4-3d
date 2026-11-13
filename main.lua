@@ -93,7 +93,7 @@ local hoveredX, hoveredZ, hoveredY = nil, nil, nil
 local lastHoverMouseX, lastHoverMouseY = nil, nil
 local isReplayMode = false
 local replaySourceMatch = nil
-local shopSortMode = "rarity" -- "rarity" | "price_asc" | "price_desc"
+local shopSortMode = "rarity_asc" -- "rarity_asc" | "rarity_desc"
 local lastCoinReward = nil
 local matchmakingState = { active = false, timer = 0, statsTimer = 0 }
 local activeTournamentMatch = nil
@@ -188,8 +188,8 @@ local function openFriendProfile(targetUsername, returnScreen)
 end
 
 local ACHIEVEMENTS_META = {
-    { id = "first_win",      icon = "★", key = "ach_first_win",      desc = "ach_desc_first_win" },
-    { id = "diag_3d",        icon = "❖", key = "ach_3d_diag",        desc = "ach_desc_3d_diag" },
+    { id = "first_win",      icon = "W1",  key = "ach_first_win",      desc = "ach_desc_first_win" },
+    { id = "diag_3d",        icon = "3D",  key = "ach_3d_diag",        desc = "ach_desc_3d_diag" },
     { id = "veteran",        icon = "10", key = "ach_veteran",       desc = "ach_desc_veteran" },
     { id = "bot_easy",       icon = "B1", key = "ach_bot_easy",      desc = "ach_desc_bot_easy" },
     { id = "bot_medium",     icon = "B2", key = "ach_bot_medium",    desc = "ach_desc_bot_medium" },
@@ -199,7 +199,7 @@ local ACHIEVEMENTS_META = {
     { id = "wins_1000",      icon = "1K", key = "ach_wins_1000",     desc = "ach_desc_wins_1000" },
     { id = "first_friend",   icon = "F1", key = "ach_first_friend",  desc = "ach_desc_first_friend" },
     { id = "pioneer_1000",   icon = "#1K", key = "ach_pioneer_1000", desc = "ach_desc_pioneer_1000" },
-    { id = "tournament_win", icon = "🏆", key = "ach_tournament_win", desc = "ach_desc_tournament_win" }
+    { id = "tournament_win", icon = "WIN", key = "ach_tournament_win", desc = "ach_desc_tournament_win" }
 }
 
 local function startFriendRoomLobby(inviteTarget)
@@ -762,11 +762,16 @@ function love.load()
         assert(Config.boardSkins.chernobyl and Config.boardSkins.chernobyl.rarity == "epic" and Config.boardSkins.chernobyl.forceSquare == true, "Expected Chernobyl epic square-only board")
         assert(not string.find(I18N.t("board_obsidian"), "Скоро") and not string.find(I18N.t("board_obsidian"), "Soon"), "Expected no Soon tag on obsidian_stub")
 
-        local sortAsc = Config.getSortedOrder(Config.pieceSkinOrder, Config.pieceSkins, "price_asc")
-        local sortDesc = Config.getSortedOrder(Config.pieceSkinOrder, Config.pieceSkins, "price_desc")
+        local sortAsc = Config.getSortedOrder(Config.pieceSkinOrder, Config.pieceSkins, "rarity_asc")
+        local sortDesc = Config.getSortedOrder(Config.pieceSkinOrder, Config.pieceSkins, "rarity_desc")
         assert(#sortAsc == #Config.pieceSkinOrder and #sortDesc == #Config.pieceSkinOrder, "Expected sorted order to retain all items")
-        assert((Config.pieceSkins[sortAsc[1]].price or 0) <= (Config.pieceSkins[sortAsc[7]].price or 0), "Expected ascending price order")
-        assert((Config.pieceSkins[sortDesc[1]].price or 0) >= (Config.pieceSkins[sortDesc[7]].price or 0), "Expected descending price order")
+        local rAsc1 = Config.RARITY_RANK[Config.pieceSkins[sortAsc[1]].rarity or "common"] or 1
+        local rAsc2 = Config.RARITY_RANK[Config.pieceSkins[sortAsc[7]].rarity or "common"] or 1
+        assert(rAsc1 <= rAsc2, "Expected ascending rarity order")
+        local rDesc1 = Config.RARITY_RANK[Config.pieceSkins[sortDesc[1]].rarity or "common"] or 1
+        local rDesc2 = Config.RARITY_RANK[Config.pieceSkins[sortDesc[7]].rarity or "common"] or 1
+        assert(rDesc1 >= rDesc2, "Expected descending rarity order")
+        assert(Config.pieceSkins.snowman.player1Color[1] > 0.95 and Config.pieceSkins.snowman.player2Color[1] < 0.70, "Expected white/grey snowman piece colors")
 
         -- Дневной лимит монет: бот 1/2/5, PvP 10 (до 10 раз), общий потолок 100/день
         Config.dailyProgress = { dateStr = "2099-01-01", coinsEarned = 0, pvpWins = 0 }
@@ -782,7 +787,14 @@ function love.load()
         assert(pTot == 100 and Config.dailyProgress.coinsEarned == 100, "Expected strict 100/day coin cap across all sources")
         assert(Config.earnDailyCoins(5, false, "2099-01-01") == 0, "Expected 0 coins once daily limit reached")
 
-        -- Проверка рендера поля Чернобыль + дымящих труб (board + shop preview)
+        -- Проверка рендера поля Чернобыль + Манхэттен с небоскрёбами (board + shop preview)
+        Config.activeBoardSkin = "manhattan"
+        Config.activePieceSkin = "skyscraper_blocks"
+        renderer:renderScene(800, 600, {
+            config = Config, logic = gameLogic, maxPly = #gameLogic.moveHistory,
+            clipOffsetX = 0.0, clipOffsetY = 0.04,
+            boardSkinOverride = Config.boardSkins.manhattan
+        })
         Config.activeBoardSkin = "chernobyl"
         renderer:renderScene(800, 600, {
             config = Config, logic = gameLogic, maxPly = #gameLogic.moveHistory,
@@ -805,7 +817,7 @@ function love.load()
             hideWinModal = true
             love.draw()
         end
-        for _, tMode in ipairs({ "rarity", "price_asc", "price_desc" }) do
+        for _, tMode in ipairs({ "rarity_asc", "rarity_desc" }) do
             shopSortMode = tMode
             for _, tTab in ipairs({ "pieces", "board", "themes" }) do
                 shopTab = tTab
@@ -813,7 +825,7 @@ function love.load()
                 love.draw()
             end
         end
-        shopSortMode = "rarity"
+        shopSortMode = "rarity_asc"
         shopTab = "pieces"
         currentScreen = "settings_modal"
         love.draw()
@@ -2312,7 +2324,7 @@ local function drawProfileModal(sw, sh)
 
     love.graphics.setFont(fonts.h2)
     love.graphics.setColor(ui.textMain)
-    local streakStr = ((p.winStreak or 0) >= 5) and ("  🔥 " .. tostring(p.winStreak)) or ""
+    local streakStr = ((p.winStreak or 0) >= 5) and ("  [W" .. tostring(p.winStreak) .. "]") or ""
     love.graphics.print(p.username .. streakStr, px + 104, py + 48)
 
     if p.isRegistered then
@@ -2995,8 +3007,7 @@ local function drawSettingsModal(sw, sh)
         })
     end
 
-    local ownCheck = Config.useOwnSkins and "[✓] " or "[ ] "
-    drawButton("settings_own_skins", bx, py + 318, bw, 38, ownCheck .. I18N.t("use_own_skins"), {
+    drawButton("settings_own_skins", bx, py + 318, bw, 38, "      " .. I18N.t("use_own_skins"), {
         active = Config.useOwnSkins,
         font = fonts.small,
         onClick = function()
@@ -3005,6 +3016,21 @@ local function drawSettingsModal(sw, sh)
             Storage.save()
         end
     })
+    -- Векторный чекбокс без юникод-символов (шрифт не содержит ✓)
+    local cbx, cby, cbs = bx + 14, py + 328, 18
+    if Config.useOwnSkins then
+        love.graphics.setColor(0.22, 0.78, 0.38, 1.0)
+        love.graphics.rectangle("fill", cbx, cby, cbs, cbs, 4, 4)
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.setLineWidth(2.4)
+        love.graphics.line(cbx + 4, cby + 9, cbx + 8, cby + 13, cbx + 14, cby + 5)
+        love.graphics.setLineWidth(1)
+    else
+        love.graphics.setColor(0.25, 0.28, 0.34, 0.9)
+        love.graphics.rectangle("fill", cbx, cby, cbs, cbs, 4, 4)
+        love.graphics.setColor(0.65, 0.70, 0.78, 0.9)
+        love.graphics.rectangle("line", cbx, cby, cbs, cbs, 4, 4)
+    end
 
     love.graphics.setFont(fonts.small)
     love.graphics.setColor(ui.textSub)
@@ -3245,23 +3271,16 @@ local function drawShopScreen(sw, sh)
     love.graphics.setColor(ui.textMain)
     love.graphics.printf(I18N.t("coins_label", Config.coins), sw - 162, 29, 130, "center")
 
-    -- Кнопка сортировки в магазине (По редкости -> Дешёвые -> Дорогие)
+    -- Кнопка сортировки в магазине (строго по редкости: возрастание <-> убывание)
     local showSortBar = (shopTab == "pieces" or shopTab == "board" or shopTab == "themes")
     if showSortBar then
-        local sortLabel = (shopSortMode == "price_asc") and I18N.t("shop_sort_cheap")
-            or ((shopSortMode == "price_desc") and I18N.t("shop_sort_expensive") or I18N.t("shop_sort_rarity"))
-        drawButton("shop_sort_btn", 64, 86, 250, 32, sortLabel, {
+        local sortLabel = (shopSortMode == "rarity_desc") and I18N.t("shop_sort_rarity_desc") or I18N.t("shop_sort_rarity_asc")
+        drawButton("shop_sort_btn", 64, 86, 260, 32, sortLabel, {
             font = fonts.small,
-            active = (shopSortMode ~= "rarity"),
+            active = (shopSortMode == "rarity_desc"),
             onClick = function()
                 Sound.play("click")
-                if shopSortMode == "rarity" then
-                    shopSortMode = "price_asc"
-                elseif shopSortMode == "price_asc" then
-                    shopSortMode = "price_desc"
-                else
-                    shopSortMode = "price_asc"
-                end
+                shopSortMode = (shopSortMode == "rarity_desc") and "rarity_asc" or "rarity_desc"
                 shopScrollX = 0
                 shopTargetScrollX = 0
             end

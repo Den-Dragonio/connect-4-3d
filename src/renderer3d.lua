@@ -418,45 +418,38 @@ local SHADER_PIXEL = [[
             outAlpha = clamp(u_baseColor.a * mix(layerA, 0.94, horizonBlend), 0.0, 1.0);
             return vec4(col + u_emissive * 0.30, outAlpha);
         } else if (u_materialType > 18.5 && u_materialType < 19.5) {
-            // 19: Квадратные блоки небоскрёбов Манхэттена (Белые = свет ВКЛ, Чёрные = свет ВЫКЛ)
+            // 19: Бесшовные блоки небоскрёба (белые и чёрные имеют одинаковый фасад — отличается только вкл/выкл свет в окнах)
             bool lightsOn = (u_baseColor.r > 0.45);
             if (abs(N.y) > 0.5) {
                 float roofTex = woodNoise3(v_localPos * 14.0 + v_worldPos * 2.0);
                 float edgeRim = step(0.35, max(abs(v_localPos.x), abs(v_localPos.z)));
-                if (lightsOn) {
-                    surfaceAlbedo = mix(vec3(0.24, 0.27, 0.34), vec3(0.46, 0.50, 0.58), roofTex * 0.55 + edgeRim * 0.45);
-                    extraGlow += vec3(0.16, 0.14, 0.10) * edgeRim;
-                    specFactor = 0.55;
-                } else {
-                    surfaceAlbedo = mix(vec3(0.05, 0.06, 0.08), vec3(0.10, 0.12, 0.15), roofTex * 0.45 + edgeRim * 0.35);
-                    specFactor = 0.32;
-                }
+                surfaceAlbedo = mix(vec3(0.14, 0.16, 0.21), vec3(0.24, 0.27, 0.34), roofTex * 0.55 + edgeRim * 0.45);
+                specFactor = 0.42;
             } else {
                 float uFace = (abs(N.x) > 0.5) ? v_localPos.z : v_localPos.x;
-                float cornerPier = step(0.355, abs(uFace));
+                float cornerPier = step(0.36, abs(uFace));
                 float cols = (uFace + 0.43) / 0.86 * 4.0;
                 float rows = (v_localPos.y + 0.195) / 0.39 * 2.0;
                 float wx = fract(cols);
                 float wy = fract(rows);
-                float winPane = step(0.16, wx) * step(wx, 0.84) * step(0.20, wy) * step(wy, 0.80);
+                float winPane = step(0.16, wx) * step(wx, 0.84) * step(0.18, wy) * step(wy, 0.82);
                 vec3 cellId = floor(vec3(cols, rows, v_worldPos.x * 2.3 + v_worldPos.z * 4.1));
                 float cellRnd = woodHash3(cellId);
+                vec3 pierCol = vec3(0.14, 0.17, 0.23);
+                vec3 frameCol = vec3(0.22, 0.26, 0.34);
+                vec3 unlitGlass = mix(vec3(0.08, 0.11, 0.17), vec3(0.14, 0.19, 0.28), cellRnd * 0.65);
+                vec3 baseFacade = mix(mix(frameCol, unlitGlass, winPane), pierCol, cornerPier);
                 if (lightsOn) {
-                    // Включённый свет: яркие тёплые и прохладные офисные окна + светлый стальной каркас
-                    float isLit = step(0.12, cellRnd) * winPane * (1.0 - cornerPier);
-                    vec3 frameCol = mix(vec3(0.26, 0.30, 0.38), vec3(0.42, 0.46, 0.54), cornerPier);
-                    vec3 winTint  = (cellRnd > 0.78)
+                    float isLit = step(0.14, cellRnd) * winPane * (1.0 - cornerPier);
+                    vec3 winTint = (cellRnd > 0.78)
                         ? vec3(0.76, 0.90, 1.00)
                         : mix(vec3(1.00, 0.82, 0.42), vec3(1.00, 0.94, 0.72), fract(cellRnd * 9.0));
-                    surfaceAlbedo = mix(frameCol, winTint, isLit * 0.95);
-                    extraGlow += winTint * isLit * 0.90;
+                    surfaceAlbedo = mix(baseFacade, winTint, isLit * 0.96);
+                    extraGlow += winTint * isLit * 0.88;
                     specFactor = mix(0.84, 0.25, isLit);
                 } else {
-                    // Выключенный свет: тёмное ночное зеркальное стекло без подсветки
-                    vec3 darkGlass = mix(vec3(0.03, 0.04, 0.065), vec3(0.06, 0.08, 0.12), winPane * (0.4 + 0.6 * cellRnd));
-                    vec3 darkPier  = vec3(0.055, 0.065, 0.085);
-                    surfaceAlbedo  = mix(darkGlass, darkPier, cornerPier);
-                    specFactor     = mix(0.88, 0.45, cornerPier);
+                    surfaceAlbedo = baseFacade;
+                    specFactor = mix(0.45, 0.86, winPane * (1.0 - cornerPier));
                 }
             }
         } else if (u_materialType > 19.5 && u_materialType < 20.5) {
@@ -1866,6 +1859,20 @@ function Renderer3D:renderScene(screenW, screenH, state)
                     taperXZ, scaleY = 0.88, 1.00
                     baseCol = { 0.08, 0.08, 0.10, overrideAlpha or 1.0 }
                 end
+            elseif pSkin.style == "skyscraper_block" then
+                -- Бесшовный рост башни: стыки ровно на половине шага, а 1-й блок ложится прямо на крышу
+                local slotTop = self:pieceWorldY(gy, pSkin) + Renderer3D.SLOT_STEP_Y * 0.5
+                local slotBot
+                if gy == 1 then
+                    local idxM = (gx - 1) * 4 + gz
+                    slotBot = isManhattanBoard and ((roofOffsetsManhattan[idxM] or 0.0) + 0.035) or 0.0
+                else
+                    slotBot = slotTop - Renderer3D.SLOT_STEP_Y
+                end
+                local blockH = math.max(0.39, slotTop - slotBot)
+                wy = (slotTop + slotBot) * 0.5
+                scaleY = blockH / 0.39
+                taperXZ = isManhattanBoard and 0.90 or 1.0
             elseif pSkin.taperByHeight then
                 taperXZ = 1.28 - (gy - 1) * 0.19
             end
@@ -1998,11 +2005,11 @@ function Renderer3D:renderScene(screenW, screenH, state)
                         )
                     end
                 elseif gy == 4 then
-                    -- Цветная атласная лента у основания цилиндра-шляпы (сам цилиндр уже нарисован как pMesh)
+                    -- Цветная атласная лента плотно у основания цилиндра-шляпы (радиус тульи 0.27*0.88 = 0.24)
                     self:_drawMeshTransform(
                         self.meshCylinder,
-                        { wx, wy + 0.10, wz },
-                        { 0.50, 0, 0 }, { 0, 0.10, 0 }, { 0, 0, 0.50 },
+                        { wx, wy + 0.11, wz },
+                        { 0.252, 0, 0 }, { 0, 0.11, 0 }, { 0, 0, 0.252 },
                         accentCol, { 0, 0, 0 }, 0.55, 0.0, 1.0, 0.0
                     )
                 end
@@ -2331,11 +2338,11 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
                         { 0.03, 0.03, 0.04, 1.0 }, { 0, 0, 0 }, 0.65, 0.0, 1.0, 0.0
                     )
                 end
-                -- Лента на шляпе
+                -- Лента плотно на тулье шляпы (радиус тульи 0.27 * 0.88 = 0.24)
                 drawPrev(
                     self.meshCylinder,
-                    { 0.0, 0.51, 0.0 },
-                    { 0.50, 0, 0 }, { 0, 0.10, 0 }, { 0, 0, 0.50 },
+                    { 0.0, 0.52, 0.0 },
+                    { 0.252, 0, 0 }, { 0, 0.10, 0 }, { 0, 0, 0.252 },
                     { 0.88, 0.14, 0.18, 1.0 }, { 0, 0, 0 }, 0.55, 0.0, 1.0, 0.0
                 )
             end

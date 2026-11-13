@@ -144,6 +144,56 @@ local SHADER_PIXEL = [[
         return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
     }
 
+    float sdPoolSeg(vec2 p, vec2 a, vec2 b) {
+        vec2 pa = p - a;
+        vec2 ba = b - a;
+        float h = clamp(dot(pa, ba) / max(dot(ba, ba), 0.0001), 0.0, 1.0);
+        return length(pa - ba * h);
+    }
+
+    float poolDigitDist(vec2 p, float dig) {
+        float w = 0.24;
+        float h = 0.42;
+        float sa = sdPoolSeg(p, vec2(-w, h),   vec2(w, h));
+        float sb = sdPoolSeg(p, vec2( w, h),   vec2(w, 0.0));
+        float sc = sdPoolSeg(p, vec2( w, 0.0), vec2(w, -h));
+        float sd = sdPoolSeg(p, vec2(-w, -h),  vec2(w, -h));
+        float se = sdPoolSeg(p, vec2(-w, 0.0), vec2(-w, -h));
+        float sf = sdPoolSeg(p, vec2(-w, h),   vec2(-w, 0.0));
+        float sg = sdPoolSeg(p, vec2(-w, 0.0), vec2(w, 0.0));
+        if (dig < 0.5) {
+            return min(min(min(sa, sb), min(sc, sd)), min(se, sf));
+        } else if (dig < 1.5) {
+            return min(sdPoolSeg(p, vec2(0.03, h), vec2(0.03, -h)), sdPoolSeg(p, vec2(-0.14, h * 0.55), vec2(0.03, h)));
+        } else if (dig < 2.5) {
+            return min(min(min(sa, sb), min(sg, se)), sd);
+        } else if (dig < 3.5) {
+            return min(min(min(sa, sb), min(sg, sc)), sd);
+        } else if (dig < 4.5) {
+            return min(min(sf, sg), min(sb, sc));
+        } else if (dig < 5.5) {
+            return min(min(min(sa, sf), min(sg, sc)), sd);
+        } else if (dig < 6.5) {
+            return min(min(min(sa, sf), min(sg, sc)), min(se, sd));
+        } else if (dig < 7.5) {
+            return min(sa, sdPoolSeg(p, vec2(w, h), vec2(-0.04, -h)));
+        }
+        return min(min(min(sa, sf), min(sg, sb)), min(sc, sd));
+    }
+
+    float poolNumberMask(vec3 sn, float num) {
+        vec2 muv = vec2(sn.x * (sn.z >= 0.0 ? 1.0 : -1.0), sn.y) / 0.34;
+        float d;
+        if (num >= 9.5) {
+            vec2 p1 = vec2((muv.x + 0.28) * 1.18, muv.y * 1.10);
+            vec2 p2 = vec2((muv.x - 0.24) * 1.18, muv.y * 1.10);
+            d = min(poolDigitDist(p1, 1.0), poolDigitDist(p2, num - 10.0));
+        } else {
+            d = poolDigitDist(muv, num);
+        }
+        return smoothstep(0.095, 0.062, d) * smoothstep(0.922, 0.935, abs(sn.z));
+    }
+
     vec4 effect(vec4 color, Image tex, vec2 texture_coords, vec2 screen_coords) {
         vec3 N = normalize(v_normal);
         vec3 V = normalize(u_eyePos - v_worldPos);
@@ -561,22 +611,22 @@ local SHADER_PIXEL = [[
             surfaceAlbedo = col;
             specFactor = spec;
         } else if (u_materialType > 23.5 && u_materialType < 24.5) {
-            // 24: Бильярдный шар (Solid — сплошной цветной с глянцевым белым номерным глазком)
+            // 24: Бильярдный шар (Solid 1-7 — сплошной цветной с глянцевым белым глазком и цифрой)
             vec3 sn = normalize(v_localPos);
             float spot = smoothstep(0.915, 0.934, abs(sn.z));
-            float innerRing = smoothstep(0.962, 0.972, abs(sn.z)) * (1.0 - smoothstep(0.980, 0.988, abs(sn.z)));
-            vec3 medCol = mix(vec3(0.97, 0.96, 0.92), u_baseColor.rgb * 0.55, innerRing * 0.75);
+            float digit = poolNumberMask(sn, max(1.0, floor(u_woodScale + 0.5)));
+            vec3 medCol = mix(vec3(0.97, 0.96, 0.92), vec3(0.05, 0.05, 0.07), digit);
             surfaceAlbedo = mix(u_baseColor.rgb, medCol, spot);
             specFactor = 0.98;
         } else if (u_materialType > 24.5 && u_materialType < 25.5) {
-            // 25: Бильярдный шар (Stripes — кремовый шар с яркой цветной полосой и номерным глазком)
+            // 25: Бильярдный шар (Stripes 9-15 — кремовый шар с яркой цветной полосой, глазком и цифрой)
             vec3 sn = normalize(v_localPos);
             float stripeBand = 1.0 - smoothstep(0.42, 0.45, abs(sn.y));
             float spot = smoothstep(0.915, 0.934, abs(sn.z));
-            float innerRing = smoothstep(0.962, 0.972, abs(sn.z)) * (1.0 - smoothstep(0.980, 0.988, abs(sn.z)));
+            float digit = poolNumberMask(sn, max(9.0, floor(u_woodScale + 0.5)));
             vec3 ivoryShell = vec3(0.95, 0.93, 0.86);
             vec3 col = mix(ivoryShell, u_baseColor.rgb, stripeBand);
-            vec3 medCol = mix(vec3(0.98, 0.97, 0.94), u_baseColor.rgb * 0.55, innerRing * 0.75);
+            vec3 medCol = mix(vec3(0.98, 0.97, 0.94), vec3(0.05, 0.05, 0.07), digit);
             surfaceAlbedo = mix(col, medCol, spot);
             specFactor = 0.98;
         }
@@ -2077,21 +2127,25 @@ function Renderer3D:renderScene(screenW, screenH, state)
     if state.showScattered and not isManhattanBoard then
         for spIdx, sp in ipairs(self.scatteredPieces) do
             local isBall = (pieceSkin.style == "billiard_ball")
-            local col = isBall and BILLIARD_PALETTE[((spIdx - 1) % #BILLIARD_PALETTE) + 1] or ((sp.player == 1) and pieceSkin.player1Color or pieceSkin.player2Color)
+            local spBallIdx = ((spIdx * 2 - 1) % #BILLIARD_PALETTE) + 1
+            local col = isBall and BILLIARD_PALETTE[spBallIdx] or ((sp.player == 1) and pieceSkin.player1Color or pieceSkin.player2Color)
             local sSc = isBall and 0.64 or 1.0
             local syOff = isBall and 0.11 or 0.0
+            local wScale = isBall and ((sp.player == 1) and spBallIdx or (spBallIdx + 8)) or 1.8
             local matType, pMesh = self:_getPieceMaterialAndMesh(pieceSkin, sp.player)
+            local ang = isBall and (-0.58 + (spIdx - 3) * 0.18) or ((pieceSkin.style == "pumpkin") and (spIdx * 1.47) or 0.0)
+            local cA, sA = math.cos(ang), math.sin(ang)
             self:_drawMeshTransform(
                 pMesh,
                 { sp.x, sp.y + syOff, sp.z },
-                { sSc, sp.tiltX * sSc, 0 },
+                { sSc * cA, sp.tiltX * sSc, sSc * sA },
                 { -sp.tiltX * sSc, sSc, sp.tiltZ * sSc },
-                { 0, -sp.tiltZ * sSc, sSc },
+                { -sSc * sA, -sp.tiltZ * sSc, sSc * cA },
                 col,
                 { 0, 0, 0 },
                 pieceSkin.specular,
                 pieceSkin.woodStrength,
-                1.8,
+                wScale,
                 matType
             )
         end
@@ -2132,11 +2186,15 @@ function Renderer3D:renderScene(screenW, screenH, state)
             local scaleY = 1.0
             local spinAngle = 0.0
             local dockFlash = 0.0
+            local cellMeta = state.logic and state.logic.cellMeta and state.logic.cellMeta[gx] and state.logic.cellMeta[gx][gy] and state.logic.cellMeta[gx][gy][gz]
+            local pieceWoodScale = 1.8
             if pSkin.style == "pine" then
                 -- Пышная конусная пирамида ёлки с запасом по высоте и ширине для полного перекрытия штыря
                 taperXZ = 1.40 - (gy - 1) * 0.16
                 scaleY = 1.20
                 spinAngle = (gy - 1) * 1.42 + gx * 0.73 + gz * 1.19
+            elseif pSkin.style == "pumpkin" then
+                spinAngle = (cellMeta and cellMeta.randomYaw) or (((gx * 73 + gy * 139 + gz * 197) % 628) * 0.01)
             elseif pSkin.style == "snowman" then
                 if gy == 1 then
                     taperXZ, scaleY = 1.04, 0.80
@@ -2181,13 +2239,15 @@ function Renderer3D:renderScene(screenW, screenH, state)
                     end
                 end
             elseif pSkin.style == "billiard_ball" then
-                -- Разноцветные бильярдные шары (без белого и чёрного) с диаметром 0.64 — стоят вплотную без зазоров
-                local bIdx = ((gx * 5 + gz * 3 + gy * 7) % #BILLIARD_PALETTE) + 1
+                -- Разноцветные бильярдные шары 1-7 (Solid) и 9-15 (Stripes) с диаметром 0.64 без зазоров
+                local bIdx = (cellMeta and cellMeta.billiardIdx) or (((gx * 3 + gz * 5 + gy * 2) % #BILLIARD_PALETTE) + 1)
                 local bCol = BILLIARD_PALETTE[bIdx]
                 baseCol = { bCol[1], bCol[2], bCol[3], overrideAlpha or 1.0 }
+                pieceWoodScale = (player == 1) and bIdx or (bIdx + 8)
                 taperXZ = 0.64
                 scaleY = 0.64
-                spinAngle = -0.35 + ((gx * 3 + gz * 5 + gy * 2) % 7) * 0.12
+                local jitter = (cellMeta and cellMeta.randomYaw) and ((cellMeta.randomYaw % 0.64) - 0.32) or (((gx * 3 + gz * 5 + gy * 2) % 7 - 3) * 0.10)
+                spinAngle = -0.61 + jitter
             elseif pSkin.taperByHeight then
                 taperXZ = 1.28 - (gy - 1) * 0.19
             end
@@ -2221,7 +2281,7 @@ function Renderer3D:renderScene(screenW, screenH, state)
                 emissive,
                 pSkin.specular,
                 pSkin.woodStrength,
-                1.8,
+                pieceWoodScale,
                 matType
             )
 
@@ -2732,7 +2792,7 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
                 )
             end
         elseif itemData.style == "billiard_ball" then
-            -- Превью бильярдных шаров: Solid (слева, насыщенно-красный) и Stripes (справа, королевский синий)
+            -- Превью бильярдных шаров: Solid #3 (слева, красный) и Stripes #10 (справа, синий)
             local s = 0.64
             local axX = { ca * s, 0, -sa * s }
             local axY = { 0, s, 0 }
@@ -2743,7 +2803,7 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
                 axX, axY, axZ,
                 { 0.88, 0.14, 0.14, 1.0 },
                 { 0, 0, 0 },
-                itemData.specular or 0.98, 0.0, 1.0, mat1
+                itemData.specular or 0.98, 0.0, 3.0, mat1
             )
             drawPrev(
                 mesh2,
@@ -2751,7 +2811,7 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
                 axX, axY, axZ,
                 { 0.10, 0.34, 0.88, 1.0 },
                 { 0, 0, 0 },
-                itemData.specular or 0.98, 0.0, 1.0, mat2
+                itemData.specular or 0.98, 0.0, 10.0, mat2
             )
         else
             -- Два крутящихся 3D-бублика или квадратных блока (первый и второй игрок) с увеличенным зазором, чтобы не пересекались при вращении

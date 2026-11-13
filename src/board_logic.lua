@@ -97,11 +97,14 @@ function BoardLogic:reset(ruleMode)
     end
     self.pegs = {}
     self.grid = {}
+    self.cellMeta = {}
     for x = 1, 4 do
         self.pegs[x] = {}
         self.grid[x] = {}
+        self.cellMeta[x] = {}
         for y = 1, 4 do
             self.grid[x][y] = {}
+            self.cellMeta[x][y] = {}
         end
         for z = 1, 4 do
             self.pegs[x][z] = {}
@@ -169,6 +172,42 @@ function BoardLogic:getCell(x, y, z)
     return self.pegs[x][z][y] or BoardLogic.Player.NONE
 end
 
+function BoardLogic:_assignPieceMeta(x, y, z, placedPos)
+    local forbidden = {}
+    local prevMove = self.moveHistory[#self.moveHistory]
+    if prevMove and prevMove.billiardIdx then
+        forbidden[prevMove.billiardIdx] = true
+    end
+    for py = 1, 4 do
+        if py ~= y then
+            local m = self.cellMeta[x] and self.cellMeta[x][py] and self.cellMeta[x][py][z]
+            if m and m.billiardIdx then
+                forbidden[m.billiardIdx] = true
+            end
+        end
+    end
+    local candidates = {}
+    for idx = 1, 7 do
+        if not forbidden[idx] then
+            table.insert(candidates, idx)
+        end
+    end
+    if #candidates == 0 then
+        for idx = 1, 7 do
+            table.insert(candidates, idx)
+        end
+    end
+    local chosenIdx = candidates[math.random(1, #candidates)]
+    local randYaw = math.random() * math.pi * 2.0
+    local meta = {
+        billiardIdx = chosenIdx,
+        randomYaw = randYaw
+    }
+    self.cellMeta[x][y][z] = meta
+    placedPos.billiardIdx = chosenIdx
+    placedPos.randomYaw = randYaw
+end
+
 function BoardLogic:placePiece(x, y, z)
     if self.ruleMode ~= "free" then
         return self:dropPiece(x, z)
@@ -188,6 +227,7 @@ function BoardLogic:placePiece(x, y, z)
         player = movedPlayer,
         notation = notation
     }
+    self:_assignPieceMeta(x, y, z, placedPos)
     table.insert(self.moveHistory, placedPos)
 
     if self:_checkWinForPlayer(movedPlayer) then
@@ -243,6 +283,7 @@ function BoardLogic:dropPiece(x, z)
         player = movedPlayer,
         notation = notation
     }
+    self:_assignPieceMeta(x, y, z, placedPos)
     table.insert(self.moveHistory, placedPos)
 
     if self:_checkWinForPlayer(movedPlayer) then

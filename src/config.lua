@@ -137,18 +137,18 @@ local Config = {
             dayPalette = {
                 id             = "minimal_gray",
                 nameKey        = "ui_theme_gray",
-                bgClear        = { 0.78, 0.80, 0.84, 1.0 },
-                panelBg        = { 0.86, 0.88, 0.91, 0.96 },
-                panelBorder    = { 0.56, 0.60, 0.66, 0.95 },
-                btnDefault     = { 0.74, 0.77, 0.82, 0.96 },
-                btnPrimary     = { 0.28, 0.48, 0.78, 0.98 },
+                bgClear        = { 0.42, 0.45, 0.50, 1.0 },
+                panelBg        = { 0.48, 0.51, 0.56, 0.96 },
+                panelBorder    = { 0.62, 0.65, 0.72, 0.95 },
+                btnDefault     = { 0.36, 0.39, 0.44, 0.96 },
+                btnPrimary     = { 0.25, 0.46, 0.76, 0.98 },
                 btnActive      = { 0.20, 0.58, 0.42, 0.96 },
-                btnAccent      = { 0.50, 0.55, 0.64, 0.96 },
-                btnBorder      = { 0.52, 0.56, 0.62, 0.94 },
-                btnHoverBorder = { 0.20, 0.38, 0.68, 1.0 },
-                textMain       = { 0.12, 0.14, 0.18, 1.0 },
-                textSub        = { 0.34, 0.38, 0.44, 1.0 },
-                accentText     = { 0.16, 0.34, 0.64, 1.0 },
+                btnAccent      = { 0.44, 0.49, 0.58, 0.96 },
+                btnBorder      = { 0.58, 0.62, 0.69, 0.94 },
+                btnHoverBorder = { 0.84, 0.90, 0.98, 1.0 },
+                textMain       = { 0.96, 0.97, 0.99, 1.0 },
+                textSub        = { 0.80, 0.83, 0.89, 1.0 },
+                accentText     = { 0.82, 0.91, 1.00, 1.0 },
                 unlocked       = true,
                 unlockType     = "free",
                 price          = 0
@@ -198,6 +198,7 @@ local Config = {
         carbon_dark = {
             id = "carbon_dark",
             nameKey = "ui_theme_obsidian",
+            underRework    = true,
             bgClear        = { 0.07, 0.08, 0.10, 1.0 },
             panelBg        = { 0.11, 0.12, 0.15, 0.95 },
             panelBorder    = { 0.26, 0.30, 0.38, 0.92 },
@@ -211,8 +212,8 @@ local Config = {
             textSub        = { 0.62, 0.67, 0.76, 1.0 },
             accentText     = { 0.58, 0.78, 0.98, 1.0 },
             unlocked       = false,
-            unlockType     = "coins",
-            price          = 100
+            unlockType     = "rework",
+            price          = 0
         },
         white_clean = {
             id = "white_clean",
@@ -749,7 +750,10 @@ function Config.getBoardSkin()
 end
 
 function Config.getUITheme(hourOverride)
-    local th = Config.uiThemes[Config.activeUITheme] or Config.uiThemes.minimal_gray
+    local th = Config.uiThemes[Config.activeUITheme]
+    if not th or th.underRework then
+        th = Config.uiThemes.minimal_gray
+    end
     if th.adaptiveDayNight and th.dayPalette and th.nightPalette then
         local hour = hourOverride
         if hour == nil then

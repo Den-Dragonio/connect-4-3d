@@ -719,7 +719,11 @@ function love.load()
         Config.activeUITheme = "minimal_gray"
         local dayT = Config.getUITheme(12)
         local nightT = Config.getUITheme(23)
-        assert(dayT.bgClear[1] > 0.6 and nightT.bgClear[1] < 0.25, "Expected day/night IRL adaptive gray theme")
+        assert(dayT.bgClear[1] >= 0.35 and dayT.bgClear[1] <= 0.55 and dayT.bgClear[1] > nightT.bgClear[1] and nightT.bgClear[1] < 0.25, "Expected darkened day & dark night adaptive gray theme")
+        assert(Config.uiThemes.carbon_dark and Config.uiThemes.carbon_dark.underRework == true, "Expected carbon_dark locked for rework")
+        Config.activeUITheme = "carbon_dark"
+        assert(Config.getUITheme(23).id == "minimal_gray", "Expected carbon_dark to fall back while under rework")
+        Config.activeUITheme = "minimal_gray"
         assert(Config.useOwnSkins == true, "Expected useOwnSkins default ON")
 
         Config.activeBoardSkin = "manhattan"
@@ -858,6 +862,35 @@ function love.load()
             blackPieceSkin = Config.pieceSkins.billiard_balls
         })
         renderer:renderShopPreview(0, 0, 120, 120, 800, 600, "board_skin", Config.boardSkins.billiard_table, 0.5)
+
+        -- Проверка неповторяющихся цветов и случайного поворота для бильярдных шаров и тыкв
+        gameLogic:reset("standard")
+        local pegColors = {}
+        local lastBIdx = nil
+        local yaws = {}
+        for step = 1, 4 do
+            local rDrop = gameLogic:dropPiece(1, 1)
+            assert(rDrop and rDrop.ok and rDrop.pos.billiardIdx, "Expected billiardIdx on placed piece")
+            assert(rDrop.pos.billiardIdx ~= lastBIdx, "Expected consecutive move not to repeat previous ball color")
+            assert(not pegColors[rDrop.pos.billiardIdx], "Expected distinct ball colors along peg (1,1)")
+            pegColors[rDrop.pos.billiardIdx] = true
+            lastBIdx = rDrop.pos.billiardIdx
+            table.insert(yaws, rDrop.pos.randomYaw)
+            if step < 4 then
+                local rOther = gameLogic:dropPiece(2, 2)
+                assert(rOther.pos.billiardIdx ~= lastBIdx, "Expected non-repeating consecutive ball index")
+                lastBIdx = rOther.pos.billiardIdx
+            end
+        end
+        assert(#yaws == 4 and (yaws[1] ~= yaws[2] or yaws[2] ~= yaws[3]), "Expected randomized pumpkin facing angles")
+
+        -- Проверка рендера Хэллоуин-надгробий в главном меню и Новогоднего инея
+        Config.activeUITheme = "halloween"
+        currentScreen = "menu"
+        love.draw()
+        Config.activeUITheme = "new_year"
+        love.draw()
+        Config.activeUITheme = "minimal_gray"
 
         -- Проверка турнирного призового фонда: фонд организатора + отмена/возврат, и взнос (entry_fee = 20, пул = 80)
         local savedCoins = Config.coins
@@ -1133,11 +1166,56 @@ function love.update(dt)
     end
 end
 
+local function drawTombstoneShape(x, y, w, h, fillCol, borderCol, archH, isPanel)
+    local topY = y
+    local springY = y + archH
+    local baseH = isPanel and 14 or 8
+    local bodyBotY = y + h - baseH
+    local cx = x + w * 0.5
+    local rx = w * 0.5
+    local segs = isPanel and 22 or 14
+
+    local poly = { x, bodyBotY }
+    for i = 0, segs do
+        local a = math.pi - (i / segs) * math.pi
+        table.insert(poly, cx + math.cos(a) * rx)
+        table.insert(poly, springY - math.sin(a) * archH)
+    end
+    table.insert(poly, x + w)
+    table.insert(poly, bodyBotY)
+
+    -- Плита надгробия и ступенчатый каменный постамент у основания
+    love.graphics.setColor(fillCol)
+    love.graphics.polygon("fill", poly)
+    love.graphics.rectangle("fill", x - (isPanel and 6 or 3), bodyBotY - 1, w + (isPanel and 12 or 6), baseH + 1, 3, 3)
+
+    -- Внутренний вырез/кант камня и трещинка
+    love.graphics.setColor(borderCol[1], borderCol[2], borderCol[3], 0.35)
+    love.graphics.setLineWidth(1.0)
+    if isPanel then
+        love.graphics.line(x + 14, y + h - 58, x + 28, y + h - 46, x + 23, y + h - 36)
+        love.graphics.line(x + w - 18, y + 66, x + w - 30, y + 78, x + w - 24, y + 86)
+        -- Маленький каменный символ на арке (крестик)
+        love.graphics.setLineWidth(2.0)
+        love.graphics.line(cx, topY + 7, cx, topY + 19)
+        love.graphics.line(cx - 5, topY + 11, cx + 5, topY + 11)
+    else
+        love.graphics.line(x + 8, springY + 4, x + w - 8, springY + 4)
+    end
+
+    -- Контур плиты
+    love.graphics.setColor(borderCol)
+    love.graphics.setLineWidth(isPanel and 2.0 or 1.6)
+    love.graphics.polygon("line", poly)
+    love.graphics.rectangle("line", x - (isPanel and 6 or 3), bodyBotY - 1, w + (isPanel and 12 or 6), baseH + 1, 3, 3)
+end
+
 local function drawButton(id, x, y, w, h, label, opts)
     opts = opts or {}
     local ui = Config.getUITheme()
     local mx, my = getUIMousePos()
     local hovered = mx >= x and mx <= x + w and my >= y and my <= y + h
+    local isHalloweenMenu = (Config.activeUITheme == "halloween" and currentScreen == "menu" and id ~= "open_profile")
 
     if opts.disabled then
         love.graphics.setColor(0.18, 0.19, 0.22, 0.90)
@@ -1165,25 +1243,39 @@ local function drawButton(id, x, y, w, h, label, opts)
         bg = { math.min(1, bg[1] + 0.08), math.min(1, bg[2] + 0.08), math.min(1, bg[3] + 0.08), 1.0 }
     end
 
-    love.graphics.setColor(bg)
-    love.graphics.rectangle("fill", x, y, w, h, 10, 10)
+    if isHalloweenMenu then
+        -- Каменное надгробие в главном меню для темы Хэллоуин
+        local stoneBg = hovered
+            and { math.min(1, bg[1] * 0.72 + 0.12), math.min(1, bg[2] * 0.72 + 0.08), math.min(1, bg[3] * 0.72 + 0.12), 0.98 }
+            or  { bg[1] * 0.62 + 0.09, bg[2] * 0.62 + 0.08, bg[3] * 0.62 + 0.11, 0.96 }
+        local archH = math.min(15, h * 0.28)
+        drawTombstoneShape(x, y, w, h, stoneBg, hovered and ui.btnHoverBorder or ui.btnBorder, archH, false)
+    else
+        love.graphics.setColor(bg)
+        love.graphics.rectangle("fill", x, y, w, h, 10, 10)
 
-    love.graphics.setColor(hovered and ui.btnHoverBorder or ui.btnBorder)
-    love.graphics.setLineWidth(1.5)
-    love.graphics.rectangle("line", x, y, w, h, 10, 10)
+        love.graphics.setColor(hovered and ui.btnHoverBorder or ui.btnBorder)
+        love.graphics.setLineWidth(1.5)
+        love.graphics.rectangle("line", x, y, w, h, 10, 10)
+    end
 
     local f = opts.font or fonts.btn
     love.graphics.setFont(f)
     love.graphics.setColor(ui.textMain)
     local _, wrapped = f:getWrap(label, w - 14)
     local totalH = #wrapped * f:getHeight()
-    love.graphics.printf(label, x + 7, y + (h - totalH) * 0.5, w - 14, "center")
+    local yBias = isHalloweenMenu and 2 or 0
+    love.graphics.printf(label, x + 7, y + (h - totalH) * 0.5 + yBias, w - 14, "center")
 
     table.insert(uiButtons, { id = id, x = x, y = y, w = w, h = h, onClick = opts.onClick })
 end
 
 local function drawPanel(x, y, w, h)
     local ui = Config.getUITheme()
+    if Config.activeUITheme == "halloween" and currentScreen == "menu" then
+        drawTombstoneShape(x, y, w, h, ui.panelBg, ui.panelBorder, 24, true)
+        return
+    end
     love.graphics.setColor(ui.panelBg)
     love.graphics.rectangle("fill", x, y, w, h, 14, 14)
     love.graphics.setColor(ui.panelBorder)
@@ -3836,7 +3928,18 @@ local function drawShopScreen(sw, sh)
                 end
 
                 local isSelected = (Config.activeUITheme == themeId)
-                if th.unlocked then
+                if th.underRework then
+                    love.graphics.setColor(0.06, 0.07, 0.10, 0.56)
+                    love.graphics.rectangle("fill", prevX, prevY, prevW, prevH, 10, 10)
+                    drawButton("uitheme_rework_" .. themeId, cx + 24, btnY, cardW - 48, btnH,
+                        I18N.t("btn_rework"),
+                        {
+                            disabled = true,
+                            font = fonts.small,
+                            onClick = function() Sound.play("click") end
+                        }
+                    )
+                elseif th.unlocked then
                     drawButton("uitheme_" .. themeId, cx + 24, btnY, cardW - 48, btnH,
                         isSelected and I18N.t("btn_selected") or I18N.t("btn_select"),
                         {
@@ -4437,18 +4540,71 @@ function love.draw()
         love.graphics.pop()
     end
 
-    -- Новогодний лёгкий снежок и морозная окантовка по краям экрана
+    -- Новогодний лёгкий снежок и реалистичный эффект инея (замороженный экран по краям и углам)
     if Config.activeUITheme == "new_year" then
         for _, sf in ipairs(snowflakes) do
             love.graphics.setColor(0.94, 0.98, 1.0, 0.72)
             love.graphics.circle("fill", sf.x * realW, sf.y * realH, sf.r)
         end
-        love.graphics.setColor(0.76, 0.90, 1.0, 0.22)
-        love.graphics.setLineWidth(14)
-        love.graphics.rectangle("line", 2, 2, realW - 4, realH - 4, 18, 18)
-        love.graphics.setColor(0.88, 0.96, 1.0, 0.35)
-        love.graphics.setLineWidth(4)
-        love.graphics.rectangle("line", 0, 0, realW, realH, 16, 16)
+
+        -- Мягкое морозное свечение от всех 4 краёв внутрь экрана
+        local layers = 6
+        local maxEdge = math.min(realW, realH) * 0.085
+        for i = 1, layers do
+            local t = (layers - i + 1) / layers
+            local pad = (i - 1) * (maxEdge / layers)
+            local lw = (maxEdge / layers) * 1.4
+            love.graphics.setColor(0.80, 0.93, 1.0, 0.11 * (t * t))
+            love.graphics.setLineWidth(lw)
+            love.graphics.rectangle("line", pad, pad, realW - pad * 2, realH - pad * 2, 16, 16)
+        end
+
+        -- Ледяные угловые узоры и кристаллические иголочки инея по периметру
+        local cSize = math.min(realW, realH) * 0.18
+        local corners = {
+            { ox = 0,     oy = 0,     sx =  1, sy =  1 },
+            { ox = realW, oy = 0,     sx = -1, sy =  1 },
+            { ox = 0,     oy = realH, sx =  1, sy = -1 },
+            { ox = realW, oy = realH, sx = -1, sy = -1 },
+        }
+        for _, cn in ipairs(corners) do
+            -- Полупрозрачная ледяная корка в углу
+            love.graphics.setColor(0.84, 0.95, 1.0, 0.18)
+            love.graphics.polygon("fill",
+                cn.ox, cn.oy,
+                cn.ox + cn.sx * cSize * 1.15, cn.oy,
+                cn.ox + cn.sx * cSize * 0.42, cn.oy + cn.sy * cSize * 0.48,
+                cn.ox, cn.oy + cn.sy * cSize * 1.05
+            )
+            -- Ветвистые ледяные лучи из угла
+            love.graphics.setLineWidth(1.4)
+            for b = 1, 7 do
+                local ang = (b / 8) * (math.pi * 0.5)
+                local len = cSize * (0.55 + ((b * 37) % 10) * 0.055)
+                local tx = cn.ox + cn.sx * math.cos(ang) * len
+                local ty = cn.oy + cn.sy * math.sin(ang) * len
+                love.graphics.setColor(0.90, 0.97, 1.0, 0.42)
+                love.graphics.line(cn.ox, cn.oy, tx, ty)
+                -- Мелкие отростки на кристалле
+                local mx = cn.ox + cn.sx * math.cos(ang) * len * 0.58
+                local my = cn.oy + cn.sy * math.sin(ang) * len * 0.58
+                local a1, a2 = ang + 0.48, ang - 0.48
+                love.graphics.setColor(0.86, 0.96, 1.0, 0.30)
+                love.graphics.line(mx, my, mx + cn.sx * math.cos(a1) * len * 0.28, my + cn.sy * math.sin(a1) * len * 0.28)
+                love.graphics.line(mx, my, mx + cn.sx * math.cos(a2) * len * 0.28, my + cn.sy * math.sin(a2) * len * 0.28)
+            end
+        end
+
+        -- Мелкие кристаллические зубчики инея вдоль верхней и нижней кромки
+        local step = math.max(24, realW / 32)
+        love.graphics.setLineWidth(1.1)
+        for xPos = cSize * 0.6, realW - cSize * 0.6, step do
+            local spike = 7 + ((math.floor(xPos) * 19) % 11)
+            love.graphics.setColor(0.88, 0.96, 1.0, 0.28)
+            love.graphics.line(xPos - 5, 0, xPos, spike, xPos + 5, 0)
+            love.graphics.line(xPos - 5, realH, xPos, realH - spike, xPos + 5, realH)
+        end
+        love.graphics.setLineWidth(1.0)
     elseif Config.activeUITheme == "halloween" then
         love.graphics.setColor(0.95, 0.42, 0.08, 0.14)
         love.graphics.setLineWidth(10)

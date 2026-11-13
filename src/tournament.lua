@@ -21,6 +21,8 @@ local BOT_NAMES = {
     "SkyBot", "FrostAI", "Shadow4"
 }
 
+local DIFF_MAP = { easy = 1, medium = 2, hard = 3 }
+
 function Tournament.create(opts)
     opts = opts or {}
     local system = (opts.system == "bracket") and "bracket" or "swiss"
@@ -31,8 +33,30 @@ function Tournament.create(opts)
     local timeMinutes = (opts.timeMinutes == 1) and 1 or 5
     local ruleMode = (opts.ruleMode == "free") and "free" or "standard"
     local isBotTournament = opts.isBotTournament and true or false
-    local botDiff = tonumber(opts.botDifficulty) or 2
+    local botDiff = DIFF_MAP[opts.botDifficulty] or tonumber(opts.botDifficulty) or 2
     local hostName = opts.hostName or "Player"
+
+    local prizeMode = opts.prizeMode
+    if prizeMode ~= "host" and prizeMode ~= "entry_fee" then
+        prizeMode = "none"
+    end
+    local hostFund = (prizeMode == "host") and math.max(0, math.floor(tonumber(opts.hostFund) or 0)) or 0
+    local entryFee = (prizeMode == "entry_fee") and math.max(0, math.floor(tonumber(opts.entryFee) or 0)) or 0
+    if prizeMode == "host" and hostFund <= 0 then
+        prizeMode = "none"
+    elseif prizeMode == "entry_fee" and entryFee <= 0 then
+        prizeMode = "none"
+    end
+
+    local paidPlayers = {}
+    local initialPool = 0
+    if prizeMode == "host" then
+        initialPool = hostFund
+        paidPlayers[hostName] = hostFund
+    elseif prizeMode == "entry_fee" then
+        initialPool = entryFee
+        paidPlayers[hostName] = entryFee
+    end
 
     local t = {
         code = genRoomCode(),
@@ -43,6 +67,12 @@ function Tournament.create(opts)
         isBotTournament = isBotTournament,
         botDifficulty = botDiff,
         hostName = hostName,
+        prizeMode = prizeMode,       -- "none", "host", "entry_fee"
+        hostFund = hostFund,
+        entryFee = entryFee,
+        prizePool = initialPool,
+        paidPlayers = paidPlayers,
+        prizePaid = false,
         status = "lobby",            -- "lobby", "active", "finished"
         currentRound = 0,
         totalRounds = (system == "bracket")
@@ -68,6 +98,9 @@ function Tournament.create(opts)
                 losses = 0,
                 playedAgainst = {}
             })
+            if t.prizeMode == "entry_fee" then
+                t.prizePool = t.prizePool + t.entryFee
+            end
         end
         Tournament.active = t
         Tournament.startTournament()
@@ -77,6 +110,15 @@ function Tournament.create(opts)
     end
 
     return t
+end
+
+function Tournament.getJoinEntryFee(code)
+    code = tostring(code or ""):upper():gsub("%s+", "")
+    local t = Tournament.active
+    if t and t.code == code and t.status == "lobby" and t.prizeMode == "entry_fee" then
+        return t.entryFee or 0
+    end
+    return 0
 end
 
 function Tournament.joinByCode(code, playerName)
@@ -95,6 +137,12 @@ function Tournament.joinByCode(code, playerName)
             table.insert(Tournament.active.players, {
                 name = playerName, isBot = false, score = 0, wins = 0, draws = 0, losses = 0, playedAgainst = {}
             })
+            if Tournament.active.prizeMode == "entry_fee" and (Tournament.active.entryFee or 0) > 0 then
+                if not Tournament.active.paidPlayers[playerName] then
+                    Tournament.active.paidPlayers[playerName] = Tournament.active.entryFee
+                    Tournament.active.prizePool = (Tournament.active.prizePool or 0) + Tournament.active.entryFee
+                end
+            end
             return true
         end
         Tournament.statusMsg = "Tournament is full"
@@ -128,6 +176,9 @@ function Tournament.startTournament()
         table.insert(t.players, {
             name = bName, isBot = true, score = 0, wins = 0, draws = 0, losses = 0, playedAgainst = {}
         })
+        if t.prizeMode == "entry_fee" and (t.entryFee or 0) > 0 then
+            t.prizePool = (t.prizePool or 0) + t.entryFee
+        end
     end
     t.status = "active"
     t.currentRound = 1
@@ -330,7 +381,40 @@ function Tournament.recordHumanMatchResult(humanName, winnerIsHuman, isDraw, mov
             Tournament.finishTournament()
         end
     end
-    return true
+    return {
+        recorded = true,
+        finished = (t.status == "finished"),
+        champion = t.champion,
+        prizePool = t.prizePool or 0,
+        prizePaid = t.prizePaid and true or false
+    }
+end
+
+function Tournament.claimChampionPrize(humanName)
+    local t = Tournament.active
+    if not t or t.status ~= "finished" or t.prizePaid then
+        return 0
+    end
+    local pool = t.prizePool or 0
+    if pool > 0 and t.champion == humanName then
+        t.prizePaid = true
+        return pool
+    end
+    return 0
+end
+
+function Tournament.cancelOrRefund(humanName)
+    local t = Tournament.active
+    if not t then
+        Tournament.leave()
+        return 0
+    end
+    local refund = 0
+    if t.status == "lobby" and humanName and t.paidPlayers and t.paidPlayers[humanName] then
+        refund = t.paidPlayers[humanName] or 0
+    end
+    Tournament.leave()
+    return refund
 end
 
 function Tournament.finishTournament()

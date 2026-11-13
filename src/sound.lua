@@ -76,6 +76,16 @@ function Sound.init()
         return creamPuff + waferCrunch
     end)
 
+    -- 7. Бильярд (чистый звонкий фенольный "клак" шаров + мягкий отзвук сукна и кия)
+    Sound.sources.drop_billiard = makeTone(0.14, function(t, dur)
+        local clackEnv = math.exp(-t * 68.0)
+        local bodyEnv  = math.exp(-t * 28.0)
+        local p1 = math.sin(2 * math.pi * 1420 * t) * 0.45
+        local p2 = math.sin(2 * math.pi * 2380 * t) * 0.35
+        local wood = math.sin(2 * math.pi * (310 - t * 650) * t) * bodyEnv * 0.28
+        return ((p1 + p2) * clackEnv * 0.55 + wood) * 0.85
+    end)
+
     -- Дефолтный алиас
     Sound.sources.drop = Sound.sources.drop_wood
 

@@ -306,6 +306,7 @@ local Config = {
         "nuclear_core",
         "glazed_donuts",
         "skyscraper_blocks",
+        "billiard_balls",
         "pine_tree",
         "snowman",
         "thin_rings",
@@ -430,6 +431,19 @@ local Config = {
             unlockType = "coins",
             price = 500
         },
+        billiard_balls = {
+            id = "billiard_balls",
+            nameKey = "skin_billiard_balls",
+            style = "billiard_ball",
+            rarity = "epic",
+            player1Color = { 0.90, 0.14, 0.12, 1.0 }, -- Solid colored pool balls (1..7, no black/white)
+            player2Color = { 0.10, 0.36, 0.90, 1.0 }, -- Striped colored pool balls (9..15, ivory shell + colored band)
+            woodStrength = 0.0,
+            specular = 0.98,
+            unlocked = false,
+            unlockType = "coins",
+            price = 500
+        },
         pine_tree = {
             id = "pine_tree",
             nameKey = "skin_pine",
@@ -517,6 +531,7 @@ local Config = {
         "snowy_winter",
         "sweet_cake",
         "chernobyl",
+        "billiard_table",
         "manhattan",
         "japanese_roof",
         "skyscraper"
@@ -607,6 +622,21 @@ local Config = {
             unlocked = false,
             unlockType = "coins",
             price = 600
+        },
+        billiard_table = {
+            id = "billiard_table",
+            nameKey = "board_billiard",
+            style = "billiard",
+            rarity = "epic",
+            soundType = "billiard",
+            forceSquare = true,
+            baseColor = { 0.06, 0.44, 0.24, 1.0 }, -- Emerald green billiard cloth + mahogany rails
+            pegColor  = { 0.88, 0.78, 0.58, 1.0 }, -- Tapered pool cues with chalked tips
+            pegHover  = { 0.98, 0.84, 0.28, 1.0 },
+            woodStrength = 0.08,
+            unlocked = false,
+            unlockType = "coins",
+            price = 550
         },
         snowy_winter = {
             id = "snowy_winter",

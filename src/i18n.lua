@@ -217,6 +217,7 @@ local I18N = {
             skin_snowman = "Snowman",
             skin_iron_blocks = "Iron Blocks",
             skin_skyscraper_blocks = "Skyscraper Blocks",
+            skin_billiard_balls = "Billiard Balls (Solid & Stripes)",
             skin_upgrade_hint = "Upgrade: %d/10 wins (Butterfly)",
 
             board_snowy = "Snowy Winter",
@@ -224,6 +225,7 @@ local I18N = {
             board_skyscraper = "Skyscraper Tower",
             board_manhattan = "Manhattan Evening",
             board_chernobyl = "Chernobyl (Unit 4)",
+            board_billiard = "Billiard Table (Cues)",
 
             rule_mode_label = "Rule Mode:",
             rule_standard = "Standard (Gravity)",
@@ -247,6 +249,16 @@ local I18N = {
             tourn_leaderboard = "Leaderboard",
             tourn_start = "Start Tournament",
             tourn_play_match = "Play Next Match",
+            tourn_prize_mode = "Prize Pool:",
+            tourn_prize_none = "None",
+            tourn_prize_host = "Host Fund",
+            tourn_prize_fee = "Entry Fee",
+            tourn_host_fund_label = "Host Contribution (Coins):",
+            tourn_entry_fee_label = "Entry Fee per Player:",
+            tourn_prize_pool = "Prize Pool: %d coins",
+            tourn_won_prize = "Champion Won +%d coins!",
+            tourn_cancel_refund = "Cancel & Refund (%d)",
+            tourn_not_enough_coins = "Not enough coins!",
 
             ach_bot_easy = "Easy Bot Slayer",
             ach_bot_medium = "Medium Bot Slayer",
@@ -529,6 +541,7 @@ local I18N = {
             skin_snowman = "Снеговик",
             skin_iron_blocks = "Железные блоки",
             skin_skyscraper_blocks = "Блоки небоскрёбов",
+            skin_billiard_balls = "Бильярдные шары (Сплошные и Полосатые)",
             skin_upgrade_hint = "Улучшение: %d/10 (Бабочка)",
 
             board_snowy = "Снежное поле",
@@ -536,6 +549,7 @@ local I18N = {
             board_skyscraper = "Небоскрёб",
             board_manhattan = "Вечерний Манхэттен",
             board_chernobyl = "Чернобыль (ЧАЭС)",
+            board_billiard = "Бильярдный стол (Кии)",
 
             rule_mode_label = "Режим правил:",
             rule_standard = "Классика (Гравитация)",
@@ -559,6 +573,16 @@ local I18N = {
             tourn_leaderboard = "Таблица лидеров",
             tourn_start = "Начать турнир",
             tourn_play_match = "Играть матч",
+            tourn_prize_mode = "Призовой фонд:",
+            tourn_prize_none = "Без приза",
+            tourn_prize_host = "Фонд организатора",
+            tourn_prize_fee = "Со взносом",
+            tourn_host_fund_label = "Вклад организатора:",
+            tourn_entry_fee_label = "Взнос с участника:",
+            tourn_prize_pool = "Призовой пул: %d мон.",
+            tourn_won_prize = "Приз чемпиона: +%d мон.!",
+            tourn_cancel_refund = "Отмена и возврат (%d)",
+            tourn_not_enough_coins = "Недостаточно монет!",
 
             ach_bot_easy = "Победить Лёгкого бота",
             ach_bot_medium = "Победить Среднего бота",
@@ -795,6 +819,7 @@ local I18N = {
             skin_iron_blocks = "Blocs de fer",
             skin_skyscraper_blocks = "Blocs gratte-ciel",
             skin_snowman = "Bonhomme de neige",
+            skin_billiard_balls = "Boules de billard (Pleines & Rayées)",
 
             board_dark_wood = "Bois Foncé",
             board_cake = "Gâteau Sucré (Glaçage & Gaufrette)",
@@ -804,6 +829,7 @@ local I18N = {
             board_obsidian = "Marbre Noir",
             board_gold = "Champ d'Or",
             board_chernobyl = "Tchernobyl (Centrale)",
+            board_billiard = "Table de Billard (Queues)",
 
             ui_theme_gray = "Gris Jour/Nuit (Défaut)",
             ui_theme_wood = "Style Bois",
@@ -839,7 +865,17 @@ local I18N = {
             rematch_btn = "Revanche (%ds)",
             rematch_waiting = "En attente (%ds)...",
             rematch_incoming = "Accepter la revanche ! (%ds)",
-            rematch_expired = "Temps écoulé"
+            rematch_expired = "Temps écoulé",
+            tourn_prize_mode = "Cagnotte :",
+            tourn_prize_none = "Aucune",
+            tourn_prize_host = "Fonds de l'hôte",
+            tourn_prize_fee = "Droit d'entrée",
+            tourn_host_fund_label = "Mise de l'hôte :",
+            tourn_entry_fee_label = "Droit d'entrée :",
+            tourn_prize_pool = "Cagnotte : %d pièces",
+            tourn_won_prize = "Prix remporté : +%d pièces !",
+            tourn_cancel_refund = "Annuler & Rembourser (%d)",
+            tourn_not_enough_coins = "Pas assez de pièces !"
         }
     }
 }

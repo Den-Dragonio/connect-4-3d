@@ -105,6 +105,9 @@ local tournamentUI = {
     ruleMode = "standard",
     isBotTournament = false,
     botDifficulty = "medium",
+    prizeMode = "none", -- "none" | "host" | "entry_fee"
+    hostFund = 50,
+    entryFee = 20,
     joinCode = "",
     errorMsg = nil
 }
@@ -522,8 +525,14 @@ local function finalizeGameEnd()
     if activeTournamentMatch and Tournament.active then
         local humanWon = (gameLogic.winner == Config.humanPlayer)
         local tRes = Tournament.recordHumanMatchResult(Config.profile.username, humanWon, gameLogic.isDraw, #gameLogic.moveHistory)
-        if tRes and tRes.finished and tRes.champion == Config.profile.username and not Tournament.active.isBotTournament then
-            Config.recordTournamentWin(Tournament.active.name or "Tournament", Tournament.active.opponents or {}, Tournament.active.system)
+        if tRes and tRes.finished then
+            local wonPrize = Tournament.claimChampionPrize(Config.profile.username)
+            if wonPrize > 0 then
+                Config.coins = Config.coins + wonPrize
+            end
+            if tRes.champion == Config.profile.username and not Tournament.active.isBotTournament then
+                Config.recordTournamentWin(Tournament.active.name or "Tournament", Tournament.active.opponents or {}, Tournament.active.system)
+            end
         end
         activeTournamentMatch = nil
     end
@@ -820,7 +829,7 @@ function love.load()
             woodStrength = Config.boardSkins.chernobyl.woodStrength
         }, 0.5)
 
-        for _, skinId in ipairs({ "pine_tree", "snowman", "iron_blocks", "skyscraper_blocks", "classic_bw" }) do
+        for _, skinId in ipairs({ "pine_tree", "snowman", "iron_blocks", "skyscraper_blocks", "billiard_balls", "classic_bw" }) do
             assert(Config.pieceSkins[skinId] ~= nil, "Missing expected piece skin: " .. skinId)
             Config.activePieceSkin = skinId
             renderer:renderShopPreview(0, 0, 120, 120, 800, 600, "pieces", Config.pieceSkins[skinId], 0.4)
@@ -829,6 +838,60 @@ function love.load()
             hideWinModal = true
             love.draw()
         end
+
+        -- Проверка бильярдного поля и бильярдных шаров без зазоров
+        assert(Config.boardSkins.billiard_table and Config.boardSkins.billiard_table.rarity == "epic" and Config.boardSkins.billiard_table.forceSquare == true, "Expected billiard_table epic square-only")
+        assert(Config.pieceSkins.billiard_balls and Config.pieceSkins.billiard_balls.rarity == "epic", "Expected billiard_balls epic")
+        local bY1 = renderer:pieceWorldY(1, Config.pieceSkins.billiard_balls)
+        local bY2 = renderer:pieceWorldY(2, Config.pieceSkins.billiard_balls)
+        local bY3 = renderer:pieceWorldY(3, Config.pieceSkins.billiard_balls)
+        local bY4 = renderer:pieceWorldY(4, Config.pieceSkins.billiard_balls)
+        assert(math.abs(bY1 - 0.32) < 1e-4 and math.abs((bY2 - bY1) - 0.64) < 1e-4 and math.abs((bY3 - bY2) - 0.64) < 1e-4 and math.abs((bY4 - bY3) - 0.64) < 1e-4, "Expected zero-gap billiard ball stacking (diameter 0.64)")
+        Config.activeBoardSkin = "billiard_table"
+        Config.activePieceSkin = "billiard_balls"
+        renderer:renderScene(800, 600, {
+            config = Config, logic = gameLogic, maxPly = #gameLogic.moveHistory,
+            clipOffsetX = 0.0, clipOffsetY = 0.04,
+            activeDrop = { x = 3, y = 2, z = 2, startY = 3.45, targetY = bY2, currentY = 1.45, elapsed = 0.10, duration = 0.36 },
+            boardSkinOverride = Config.boardSkins.billiard_table,
+            whitePieceSkin = Config.pieceSkins.billiard_balls,
+            blackPieceSkin = Config.pieceSkins.billiard_balls
+        })
+        renderer:renderShopPreview(0, 0, 120, 120, 800, 600, "board_skin", Config.boardSkins.billiard_table, 0.5)
+
+        -- Проверка турнирного призового фонда: фонд организатора + отмена/возврат, и взнос (entry_fee = 20, пул = 80)
+        local savedCoins = Config.coins
+        Config.coins = 100
+        local tHost = Tournament.create({
+            system = "bracket", maxPlayers = 4, timeMinutes = 5, ruleMode = "standard",
+            isBotTournament = false, hostName = "CIHost", prizeMode = "host", hostFund = 60
+        })
+        assert(tHost.prizePool == 60 and tHost.status == "lobby", "Expected host prizePool = 60")
+        assert(Tournament.cancelOrRefund("CIHost") == 60, "Expected full refund 60 when canceling in lobby")
+
+        Tournament.create({
+            system = "bracket", maxPlayers = 4, timeMinutes = 5, ruleMode = "standard",
+            isBotTournament = true, botDifficulty = "easy", hostName = "CIWinner",
+            prizeMode = "entry_fee", entryFee = 20
+        })
+        assert(Tournament.active and Tournament.active.prizePool == 80, "Expected 4-player entry_fee=20 pot to equal 80")
+        local r1 = Tournament.recordHumanMatchResult("CIWinner", true, false, 7)
+        assert(r1 and r1.recorded and not r1.finished, "Expected round 1 recorded, not finished")
+        local r2 = Tournament.recordHumanMatchResult("CIWinner", true, false, 9)
+        assert(r2 and r2.finished and r2.champion == "CIWinner" and r2.prizePool == 80, "Expected CIWinner champion after final")
+        local won = Tournament.claimChampionPrize("CIWinner")
+        assert(won == 80 and Tournament.claimChampionPrize("CIWinner") == 0, "Expected prize 80 claimed once")
+
+        currentScreen = "tournament_modal"
+        tournamentUI.view = "create"
+        tournamentUI.prizeMode = "entry_fee"
+        love.draw()
+        tournamentUI.view = "room"
+        love.draw()
+        Tournament.leave()
+        tournamentUI.prizeMode = "none"
+        tournamentUI.view = "hub"
+        Config.coins = savedCoins
         for _, tMode in ipairs({ "rarity_asc", "rarity_desc" }) do
             shopSortMode = tMode
             for _, tTab in ipairs({ "pieces", "board", "themes" }) do
@@ -2048,79 +2111,202 @@ end
 
 local function drawTournamentModal(sw, sh)
     local ui = Config.getUITheme()
-    local pw, ph = 680, 520
+    local pw, ph = 700, 565
     local px, py = (sw - pw) * 0.5, (sh - ph) * 0.5
     drawPanel(px, py, pw, ph)
 
     love.graphics.setFont(fonts.h2)
     love.graphics.setColor(ui.textMain)
-    love.graphics.printf(I18N.t("tournament_title"), px, py + 16, pw, "center")
+    love.graphics.printf(I18N.t("tournament_title"), px, py + 14, pw, "center")
 
-    local bx, bw = px + 36, pw - 72
+    local bx, bw = px + 32, pw - 64
     local halfW = (bw - 12) * 0.5
 
     if tournamentUI.view == "hub" then
-        drawButton("tourn_go_create", bx, py + 120, bw, 56, I18N.t("tourn_create"), {
+        drawButton("tourn_go_create", bx, py + 130, bw, 56, I18N.t("tourn_create"), {
             primary = true,
-            onClick = function() Sound.play("click"); tournamentUI.view = "create" end
+            onClick = function() Sound.play("click"); tournamentUI.errorMsg = nil; tournamentUI.view = "create" end
         })
-        drawButton("tourn_go_join", bx, py + 196, bw, 56, I18N.t("tourn_join"), {
+        drawButton("tourn_go_join", bx, py + 206, bw, 56, I18N.t("tourn_join"), {
             accent = true,
             onClick = function() Sound.play("click"); tournamentUI.view = "join"; tournamentUI.errorMsg = nil end
         })
     elseif tournamentUI.view == "create" then
         love.graphics.setFont(fonts.small)
         love.graphics.setColor(ui.textSub)
-        love.graphics.print(I18N.t("tourn_system"), bx, py + 68)
-        drawButton("tc_swiss", bx, py + 88, halfW, 36, I18N.t("tourn_swiss"), {
+        love.graphics.print(I18N.t("tourn_system"), bx, py + 52)
+        drawButton("tc_swiss", bx, py + 70, halfW, 32, I18N.t("tourn_swiss"), {
             active = (tournamentUI.system == "swiss"), font = fonts.small,
             onClick = function() Sound.play("click"); tournamentUI.system = "swiss" end
         })
-        drawButton("tc_bracket", bx + halfW + 12, py + 88, halfW, 36, I18N.t("tourn_bracket"), {
+        drawButton("tc_bracket", bx + halfW + 12, py + 70, halfW, 32, I18N.t("tourn_bracket"), {
             active = (tournamentUI.system == "bracket"), font = fonts.small,
             onClick = function() Sound.play("click"); tournamentUI.system = "bracket" end
         })
 
+        -- Участники и контроль времени в одну аккуратную строку
+        local leftBlockW = (bw - 20) * 0.5
+        local qBtnW = (leftBlockW - 8) * 0.5
+        local rightBlockX = bx + leftBlockW + 20
         love.graphics.setColor(ui.textSub)
-        love.graphics.print(I18N.t("tourn_players"), bx, py + 134)
-        drawButton("tc_p4", bx, py + 154, halfW, 36, "4", {
-            active = (tournamentUI.maxPlayers == 4),
+        love.graphics.print(I18N.t("tourn_players"), bx, py + 108)
+        drawButton("tc_p4", bx, py + 126, qBtnW, 32, "4", {
+            active = (tournamentUI.maxPlayers == 4), font = fonts.small,
             onClick = function() Sound.play("click"); tournamentUI.maxPlayers = 4 end
         })
-        drawButton("tc_p8", bx + halfW + 12, py + 154, halfW, 36, "8", {
-            active = (tournamentUI.maxPlayers == 8),
+        drawButton("tc_p8", bx + qBtnW + 8, py + 126, qBtnW, 32, "8", {
+            active = (tournamentUI.maxPlayers == 8), font = fonts.small,
             onClick = function() Sound.play("click"); tournamentUI.maxPlayers = 8 end
         })
 
         love.graphics.setColor(ui.textSub)
-        love.graphics.print(I18N.t("time_control_label"), bx, py + 200)
-        drawButton("tc_t5", bx, py + 220, halfW, 36, I18N.t("time_5m"), {
+        love.graphics.print(I18N.t("time_control_label"), rightBlockX, py + 108)
+        drawButton("tc_t5", rightBlockX, py + 126, qBtnW, 32, I18N.t("time_5m"), {
             active = (tournamentUI.timeMinutes == 5), font = fonts.small,
             onClick = function() Sound.play("click"); tournamentUI.timeMinutes = 5 end
         })
-        drawButton("tc_t1", bx + halfW + 12, py + 220, halfW, 36, I18N.t("time_1m"), {
+        drawButton("tc_t1", rightBlockX + qBtnW + 8, py + 126, qBtnW, 32, I18N.t("time_1m"), {
             active = (tournamentUI.timeMinutes == 1), font = fonts.small,
             onClick = function() Sound.play("click"); tournamentUI.timeMinutes = 1 end
         })
 
-        drawButton("tc_bot_toggle", bx, py + 270, bw, 38, I18N.t("tourn_bot_mode") .. (tournamentUI.isBotTournament and " [ON]" or " [OFF]"), {
+        drawButton("tc_bot_toggle", bx, py + 168, bw, 34, I18N.t("tourn_bot_mode") .. (tournamentUI.isBotTournament and " [ON]" or " [OFF]"), {
             active = tournamentUI.isBotTournament, font = fonts.small,
             onClick = function() Sound.play("click"); tournamentUI.isBotTournament = not tournamentUI.isBotTournament end
         })
+        local prizeTop = py + 212
         if tournamentUI.isBotTournament then
             local thirdW = (bw - 16) / 3
             for idx, d in ipairs({ { "easy", I18N.t("diff_easy") }, { "medium", I18N.t("diff_medium") }, { "hard", I18N.t("diff_hard") } }) do
-                drawButton("tc_bdiff_" .. d[1], bx + (idx - 1) * (thirdW + 8), py + 318, thirdW, 34, d[2], {
+                drawButton("tc_bdiff_" .. d[1], bx + (idx - 1) * (thirdW + 8), py + 208, thirdW, 30, d[2], {
                     active = (tournamentUI.botDifficulty == d[1]), font = fonts.small,
                     onClick = function() Sound.play("click"); tournamentUI.botDifficulty = d[1] end
                 })
             end
+            prizeTop = py + 246
         end
 
-        drawButton("tc_submit", bx, py + ph - 112, bw, 44, I18N.t("tourn_create"), {
+        -- Настройки призового фонда / турнирного взноса
+        love.graphics.setFont(fonts.small)
+        love.graphics.setColor(ui.textSub)
+        love.graphics.print(I18N.t("tourn_prize_mode"), bx, prizeTop)
+        love.graphics.setColor(0.96, 0.78, 0.22, 1.0)
+        love.graphics.printf(I18N.t("coins_label", Config.coins), bx, prizeTop, bw, "right")
+
+        local pModeW = (bw - 16) / 3
+        for idx, pm in ipairs({
+            { "none",      I18N.t("tourn_prize_none") },
+            { "host",      I18N.t("tourn_prize_host") },
+            { "entry_fee", I18N.t("tourn_prize_fee") }
+        }) do
+            drawButton("tc_pm_" .. pm[1], bx + (idx - 1) * (pModeW + 8), prizeTop + 20, pModeW, 32, pm[2], {
+                active = (tournamentUI.prizeMode == pm[1]), font = fonts.small,
+                onClick = function()
+                    Sound.play("click")
+                    tournamentUI.prizeMode = pm[1]
+                    tournamentUI.errorMsg = nil
+                end
+            })
+        end
+
+        if tournamentUI.prizeMode == "host" or tournamentUI.prizeMode == "entry_fee" then
+            local isHost = (tournamentUI.prizeMode == "host")
+            local expectedPool = isHost and tournamentUI.hostFund or (tournamentUI.entryFee * tournamentUI.maxPlayers)
+            love.graphics.setFont(fonts.small)
+            love.graphics.setColor(ui.textSub)
+            love.graphics.print(I18N.t(isHost and "tourn_host_fund_label" or "tourn_entry_fee_label"), bx, prizeTop + 60)
+            love.graphics.setColor(0.45, 0.90, 0.58, 1.0)
+            love.graphics.printf(I18N.t("tourn_prize_pool", expectedPool), bx, prizeTop + 60, bw, "right")
+
+            local amtRowY = prizeTop + 80
+            local slotW = (bw - 40) / 6
+            if isHost then
+                local presets = { 20, 50, 100, 250 }
+                drawButton("tc_amt_sub", bx, amtRowY, slotW, 32, "-10", {
+                    font = fonts.small,
+                    onClick = function()
+                        Sound.play("click")
+                        tournamentUI.hostFund = math.max(10, tournamentUI.hostFund - 10)
+                        tournamentUI.errorMsg = nil
+                    end
+                })
+                for idx, val in ipairs(presets) do
+                    drawButton("tc_amt_" .. val, bx + idx * (slotW + 8), amtRowY, slotW, 32, tostring(val), {
+                        active = (tournamentUI.hostFund == val), font = fonts.small,
+                        onClick = function()
+                            Sound.play("click")
+                            tournamentUI.hostFund = val
+                            tournamentUI.errorMsg = nil
+                        end
+                    })
+                end
+                drawButton("tc_amt_add", bx + 5 * (slotW + 8), amtRowY, slotW, 32, "+10", {
+                    font = fonts.small,
+                    onClick = function()
+                        Sound.play("click")
+                        tournamentUI.hostFund = math.min(5000, tournamentUI.hostFund + 10)
+                        tournamentUI.errorMsg = nil
+                    end
+                })
+            else
+                local presets = { 10, 20, 50, 100 }
+                drawButton("tc_fee_sub", bx, amtRowY, slotW, 32, "-5", {
+                    font = fonts.small,
+                    onClick = function()
+                        Sound.play("click")
+                        tournamentUI.entryFee = math.max(5, tournamentUI.entryFee - 5)
+                        tournamentUI.errorMsg = nil
+                    end
+                })
+                for idx, val in ipairs(presets) do
+                    drawButton("tc_fee_" .. val, bx + idx * (slotW + 8), amtRowY, slotW, 32, tostring(val), {
+                        active = (tournamentUI.entryFee == val), font = fonts.small,
+                        onClick = function()
+                            Sound.play("click")
+                            tournamentUI.entryFee = val
+                            tournamentUI.errorMsg = nil
+                        end
+                    })
+                end
+                drawButton("tc_fee_add", bx + 5 * (slotW + 8), amtRowY, slotW, 32, "+5", {
+                    font = fonts.small,
+                    onClick = function()
+                        Sound.play("click")
+                        tournamentUI.entryFee = math.min(1000, tournamentUI.entryFee + 5)
+                        tournamentUI.errorMsg = nil
+                    end
+                })
+            end
+
+            love.graphics.setFont(fonts.small)
+            love.graphics.setColor(ui.textMain)
+            local selVal = isHost and tournamentUI.hostFund or tournamentUI.entryFee
+            love.graphics.printf(tostring(selVal) .. " -> " .. I18N.t("tourn_prize_pool", expectedPool), bx, amtRowY + 40, bw, "center")
+        end
+
+        if tournamentUI.errorMsg then
+            love.graphics.setFont(fonts.small)
+            love.graphics.setColor(0.95, 0.35, 0.35, 1.0)
+            love.graphics.printf(tournamentUI.errorMsg, bx, py + ph - 122, bw, "center")
+        end
+
+        drawButton("tc_submit", bx, py + ph - 98, bw, 40, I18N.t("tourn_create"), {
             primary = true,
             onClick = function()
+                local cost = 0
+                if tournamentUI.prizeMode == "host" then
+                    cost = tournamentUI.hostFund
+                elseif tournamentUI.prizeMode == "entry_fee" then
+                    cost = tournamentUI.entryFee
+                end
+                if Config.coins < cost then
+                    Sound.play("hover")
+                    tournamentUI.errorMsg = I18N.t("tourn_not_enough_coins")
+                    return
+                end
                 Sound.play("click")
+                Config.coins = Config.coins - cost
+                tournamentUI.errorMsg = nil
                 Tournament.create({
                     system = tournamentUI.system,
                     maxPlayers = tournamentUI.maxPlayers,
@@ -2128,8 +2314,12 @@ local function drawTournamentModal(sw, sh)
                     ruleMode = Config.ruleMode,
                     isBotTournament = tournamentUI.isBotTournament,
                     botDifficulty = tournamentUI.botDifficulty,
-                    hostName = Config.profile.username
+                    hostName = Config.profile.username,
+                    prizeMode = tournamentUI.prizeMode,
+                    hostFund = tournamentUI.hostFund,
+                    entryFee = tournamentUI.entryFee
                 })
+                Storage.save()
                 tournamentUI.view = "room"
             end
         })
@@ -2152,13 +2342,23 @@ local function drawTournamentModal(sw, sh)
         drawButton("tj_submit", bx, py + 230, bw, 44, I18N.t("tourn_join"), {
             primary = true,
             onClick = function()
+                local joinFee = Tournament.getJoinEntryFee(tournamentUI.joinCode)
+                if joinFee > 0 and Config.coins < joinFee then
+                    Sound.play("hover")
+                    tournamentUI.errorMsg = I18N.t("tourn_not_enough_coins")
+                    return
+                end
                 Sound.play("click")
-                local ok, err = Tournament.joinByCode(tournamentUI.joinCode, Config.profile.username)
+                local ok = Tournament.joinByCode(tournamentUI.joinCode, Config.profile.username)
                 if ok then
+                    if joinFee > 0 then
+                        Config.coins = Config.coins - joinFee
+                        Storage.save()
+                    end
                     tournamentUI.view = "room"
                     tournamentUI.errorMsg = nil
                 else
-                    tournamentUI.errorMsg = err
+                    tournamentUI.errorMsg = Tournament.statusMsg
                 end
             end
         })
@@ -2166,24 +2366,37 @@ local function drawTournamentModal(sw, sh)
         local t = Tournament.active
         love.graphics.setFont(fonts.body)
         love.graphics.setColor(ui.textMain)
-        love.graphics.printf(I18N.t("tourn_code") .. " " .. t.code .. "   |   " .. (t.system == "swiss" and I18N.t("tourn_swiss") or I18N.t("tourn_bracket")), px, py + 52, pw, "center")
+        love.graphics.printf(I18N.t("tourn_code") .. " " .. t.code .. "   |   " .. (t.system == "swiss" and I18N.t("tourn_swiss") or I18N.t("tourn_bracket")), px, py + 48, pw, "center")
+
+        if (t.prizePool or 0) > 0 then
+            love.graphics.setFont(fonts.small)
+            love.graphics.setColor(0.96, 0.78, 0.22, 1.0)
+            local poolTxt = I18N.t("tourn_prize_pool", t.prizePool)
+            if t.prizeMode == "entry_fee" and (t.entryFee or 0) > 0 then
+                poolTxt = poolTxt .. " (" .. I18N.t("tourn_prize_fee") .. ": " .. t.entryFee .. ")"
+            elseif t.prizeMode == "host" then
+                poolTxt = poolTxt .. " (" .. I18N.t("tourn_prize_host") .. ")"
+            end
+            love.graphics.printf(poolTxt, px, py + 72, pw, "center")
+        end
 
         if t.status == "lobby" then
-            drawButton("tr_start", bx, py + 92, bw, 42, I18N.t("tourn_start"), {
+            drawButton("tr_start", bx, py + 98, bw, 38, I18N.t("tourn_start"), {
                 primary = true,
                 onClick = function() Sound.play("click"); Tournament.startTournament() end
             })
         end
 
+        local listTop = (t.status == "lobby") and (py + 146) or (py + 106)
         if t.system == "swiss" then
             -- Таблица лидеров Швейцарки
             love.graphics.setFont(fonts.small)
             love.graphics.setColor(ui.textSub)
-            love.graphics.print(I18N.t("tourn_leaderboard"), bx, py + 144)
+            love.graphics.print(I18N.t("tourn_leaderboard"), bx, listTop)
             local lb = Tournament.getLeaderboard()
             for idx, row in ipairs(lb) do
                 if idx <= 8 then
-                    local ry = py + 168 + (idx - 1) * 26
+                    local ry = listTop + 24 + (idx - 1) * 25
                     love.graphics.setColor(idx == 1 and { 0.96, 0.78, 0.22, 1.0 } or ui.textMain)
                     love.graphics.print(string.format("#%d  %s", idx, row.name), bx, ry)
                     love.graphics.printf(string.format("%.1f pts  (%dW/%dD/%dL)", row.score, row.wins, row.draws, row.losses), bx, ry, bw, "right")
@@ -2197,7 +2410,7 @@ local function drawTournamentModal(sw, sh)
                 local rx = bx + (rIdx - 1) * colW
                 local stepY = 230 / math.max(1, #rMatches)
                 for mIdx, m in ipairs(rMatches) do
-                    local my = py + 148 + (mIdx - 0.5) * stepY
+                    local my = listTop + 12 + (mIdx - 0.5) * stepY
                     love.graphics.setColor(ui.bgClear)
                     love.graphics.rectangle("fill", rx, my - 18, colW - 14, 38, 6, 6)
                     love.graphics.setColor(m.done and { 0.30, 0.75, 0.48, 1.0 } or ui.panelBorder)
@@ -2210,26 +2423,44 @@ local function drawTournamentModal(sw, sh)
         end
 
         local pending = Tournament.getHumanPendingMatch(Config.profile.username)
+        local myPaid = (t.status == "lobby" and t.paidPlayers and (t.paidPlayers[Config.profile.username] or 0)) or 0
         if pending and t.status == "active" then
-            drawButton("tr_play_match", bx, py + ph - 104, bw, 42, I18N.t("tourn_play_match") .. " (" .. pending.p1 .. " vs " .. pending.p2 .. ")", {
+            drawButton("tr_play_match", bx, py + ph - 104, bw, 40, I18N.t("tourn_play_match") .. " (" .. pending.p1 .. " vs " .. pending.p2 .. ")", {
                 primary = true,
                 onClick = function()
                     Sound.play("click")
                     activeTournamentMatch = pending
                     Config.ruleMode = t.ruleMode or "standard"
                     Config.onlineTimeMinutes = t.timeMinutes or 5
-                    local diffNum = (t.botDifficulty == "easy" and 1) or (t.botDifficulty == "hard" and 3) or 2
+                    local diffNum = tonumber(t.botDifficulty) or ((t.botDifficulty == "easy" and 1) or (t.botDifficulty == "hard" and 3) or 2)
                     startNewGame(t.isBotTournament and Config.GameMode.VS_BOT or Config.GameMode.ONLINE, diffNum)
+                end
+            })
+        elseif t.status == "lobby" and myPaid > 0 then
+            drawButton("tr_cancel_refund", bx, py + ph - 104, bw, 38, I18N.t("tourn_cancel_refund", myPaid), {
+                onClick = function()
+                    Sound.play("click")
+                    local refunded = Tournament.cancelOrRefund(Config.profile.username)
+                    if refunded > 0 then
+                        Config.coins = Config.coins + refunded
+                        Storage.save()
+                    end
+                    tournamentUI.view = "hub"
                 end
             })
         elseif t.status == "finished" and t.champion then
             love.graphics.setFont(fonts.h2)
             love.graphics.setColor(0.96, 0.78, 0.22, 1.0)
-            love.graphics.printf("Champion: " .. tostring(t.champion), bx, py + ph - 98, bw, "center")
+            love.graphics.printf("Champion: " .. tostring(t.champion), bx, py + ph - 114, bw, "center")
+            if (t.prizePool or 0) > 0 then
+                love.graphics.setFont(fonts.small)
+                love.graphics.setColor(0.45, 0.90, 0.58, 1.0)
+                love.graphics.printf(I18N.t("tourn_won_prize", t.prizePool), bx, py + ph - 82, bw, "center")
+            end
         end
     end
 
-    drawButton("tourn_back", px + pw * 0.5 - 80, py + ph - 50, 160, 38, I18N.t("back_btn"), {
+    drawButton("tourn_back", px + pw * 0.5 - 80, py + ph - 48, 160, 38, I18N.t("back_btn"), {
         onClick = function()
             Sound.play("click")
             if tournamentUI.view == "create" or tournamentUI.view == "join" then

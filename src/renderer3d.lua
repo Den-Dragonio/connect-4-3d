@@ -484,6 +484,101 @@ local SHADER_PIXEL = [[
             float topSoot = smoothstep(0.86, 1.0, hNorm);
             surfaceAlbedo = mix(surfaceAlbedo, vec3(0.10, 0.10, 0.11), topSoot * 0.78);
             specFactor = 0.24;
+        } else if (u_materialType > 21.5 && u_materialType < 22.5) {
+            // 22: Бильярдный стол — зелёное сукно Simonis, линии разметки, борта из красного дерева, перламутровые точки и лузы
+            float absX = abs(v_localPos.x);
+            float absZ = abs(v_localPos.z);
+            float edgeMax = max(absX, absZ);
+            float isTop = step(0.65, N.y);
+            float isRailTop = smoothstep(0.428, 0.436, edgeMax);
+            float isCloth = isTop * (1.0 - isRailTop);
+
+            // Тканое сукно и разметка
+            float weave = 0.5 + 0.5 * sin(v_worldPos.x * 46.0) * cos(v_worldPos.z * 46.0);
+            float feltGrain = woodNoise3(v_worldPos * 14.0);
+            vec3 feltCol = mix(vec3(0.04, 0.34, 0.17), vec3(0.07, 0.44, 0.22), feltGrain * 0.7 + weave * 0.3);
+            // Тень от борта по периметру сукна
+            float cushionShadow = smoothstep(0.405, 0.432, edgeMax);
+            feltCol *= (1.0 - 0.28 * cushionShadow);
+            // Белая линия дома и центральная точка разбоя
+            float baulkLine = smoothstep(0.0045, 0.001, abs(v_localPos.z + 0.21)) * step(edgeMax, 0.425);
+            float breakSpot = 1.0 - smoothstep(0.011, 0.016, length(v_localPos.xz));
+            feltCol = mix(feltCol, vec3(0.84, 0.90, 0.85), max(baulkLine * 0.45, breakSpot * 0.75));
+
+            // 4 угловые лузы
+            vec2 cornerDist = abs(v_localPos.xz) - vec2(0.408, 0.408);
+            float pocketD = length(cornerDist);
+            float pocketRim = (1.0 - smoothstep(0.036, 0.048, pocketD)) * smoothstep(0.026, 0.036, pocketD);
+            float pocketHole = 1.0 - smoothstep(0.024, 0.034, pocketD);
+            feltCol = mix(feltCol, vec3(0.18, 0.13, 0.06), pocketRim);
+            feltCol = mix(feltCol, vec3(0.015, 0.02, 0.015), pocketHole);
+
+            // Борта из полированного красного дерева (махагон)
+            float woodG = woodNoise3(vec3(v_worldPos.x * 2.4, v_worldPos.y * 1.4, v_worldPos.z * 2.4));
+            vec3 woodCol = mix(vec3(0.24, 0.09, 0.05), vec3(0.42, 0.17, 0.09), woodG);
+            // Перламутровые прицельные метки на бортах
+            float diamondX = (1.0 - smoothstep(0.009, 0.015, length(vec2(v_localPos.x, absZ - 0.468))));
+            float diamondZ = (1.0 - smoothstep(0.009, 0.015, length(vec2(absX - 0.468, v_localPos.z))));
+            float diamondSideX = (1.0 - smoothstep(0.009, 0.015, length(vec2(absX - 0.22, absZ - 0.468))));
+            float diamondSideZ = (1.0 - smoothstep(0.009, 0.015, length(vec2(absX - 0.468, absZ - 0.22))));
+            float sights = max(max(diamondX, diamondZ), max(diamondSideX, diamondSideZ)) * isRailTop;
+            woodCol = mix(woodCol, vec3(0.92, 0.89, 0.80), sights * 0.88);
+
+            surfaceAlbedo = mix(woodCol, feltCol, isCloth);
+            specFactor = mix(0.62, 0.08, isCloth);
+        } else if (u_materialType > 22.5 && u_materialType < 23.5) {
+            // 23: Бильярдный кий — тёмный турняк, обмотка, кленовый шафт, феррула и синий мел на наклейке
+            float hNorm = clamp(v_localPos.y / 2.68, 0.0, 1.0);
+            float woodG = woodNoise3(v_worldPos * 6.0);
+            vec3 col = vec3(0.86, 0.74, 0.54); // Кленовый шафт
+            float spec = 0.65;
+            if (hNorm < 0.04) {
+                col = vec3(0.07, 0.07, 0.08); // Резиновый бампер
+                spec = 0.22;
+            } else if (hNorm < 0.27) {
+                // Палисандровый турняк с инкрустацией
+                float splice = 0.5 + 0.5 * sin(atan(v_localPos.z, v_localPos.x) * 4.0 + hNorm * 14.0);
+                col = mix(vec3(0.14, 0.06, 0.04), vec3(0.38, 0.16, 0.08), woodG * 0.55 + splice * 0.45);
+                spec = 0.82;
+            } else if (hNorm < 0.44) {
+                // Льняная обмотка
+                float linen = fract(hNorm * 95.0);
+                col = mix(vec3(0.12, 0.12, 0.14), vec3(0.24, 0.22, 0.21), step(0.45, linen));
+                spec = 0.18;
+            } else if (hNorm < 0.465) {
+                col = vec3(0.86, 0.70, 0.28); // Латунное кольцо
+                spec = 0.92;
+            } else if (hNorm < 0.935) {
+                col = mix(vec3(0.82, 0.68, 0.46), vec3(0.92, 0.81, 0.60), woodG);
+                spec = 0.62;
+            } else if (hNorm < 0.968) {
+                col = vec3(0.96, 0.95, 0.91); // Белая феррула
+                spec = 0.80;
+            } else {
+                col = vec3(0.12, 0.42, 0.88); // Синий бильярдный мел
+                spec = 0.15;
+            }
+            surfaceAlbedo = col;
+            specFactor = spec;
+        } else if (u_materialType > 23.5 && u_materialType < 24.5) {
+            // 24: Бильярдный шар (Solid — сплошной цветной с глянцевым белым номерным глазком)
+            vec3 sn = normalize(v_localPos);
+            float spot = smoothstep(0.915, 0.934, abs(sn.z));
+            float innerRing = smoothstep(0.962, 0.972, abs(sn.z)) * (1.0 - smoothstep(0.980, 0.988, abs(sn.z)));
+            vec3 medCol = mix(vec3(0.97, 0.96, 0.92), u_baseColor.rgb * 0.55, innerRing * 0.75);
+            surfaceAlbedo = mix(u_baseColor.rgb, medCol, spot);
+            specFactor = 0.98;
+        } else if (u_materialType > 24.5 && u_materialType < 25.5) {
+            // 25: Бильярдный шар (Stripes — кремовый шар с яркой цветной полосой и номерным глазком)
+            vec3 sn = normalize(v_localPos);
+            float stripeBand = 1.0 - smoothstep(0.42, 0.45, abs(sn.y));
+            float spot = smoothstep(0.915, 0.934, abs(sn.z));
+            float innerRing = smoothstep(0.962, 0.972, abs(sn.z)) * (1.0 - smoothstep(0.980, 0.988, abs(sn.z)));
+            vec3 ivoryShell = vec3(0.95, 0.93, 0.86);
+            vec3 col = mix(ivoryShell, u_baseColor.rgb, stripeBand);
+            vec3 medCol = mix(vec3(0.98, 0.97, 0.94), u_baseColor.rgb * 0.55, innerRing * 0.75);
+            surfaceAlbedo = mix(col, medCol, spot);
+            specFactor = 0.98;
         }
 
         vec3 L1 = normalize(vec3(0.55, 0.78, 0.48));
@@ -537,6 +632,7 @@ function Renderer3D.new()
     self.meshPineTier  = self:_buildPineTierMesh(56, 14)
     self.meshPineTop   = self:_buildPineTopMesh(44)
     self.meshPeg       = self:_buildPegMesh(Renderer3D.PEG_RADIUS, Renderer3D.PEG_HEIGHT, 24)
+    self.meshCuePeg    = self:_buildCuePegMesh(0.145, 0.068, Renderer3D.PEG_HEIGHT, 24)
     self.meshCylinder  = self:_buildUnitCylinderMesh(24)
     self.meshRoundBase    = self:_buildCappedDiscMesh(64)
     self.meshBox          = self:_buildUnitBoxMesh()
@@ -614,6 +710,8 @@ function Renderer3D:pieceWorldY(gy, pieceSkin)
     local style = pieceSkin and pieceSkin.style or "wood"
     if style == "pine" then
         return 0.335 + (gy - 1) * 0.67
+    elseif style == "billiard_ball" then
+        return 0.32 + (gy - 1) * 0.64
     elseif style == "snowman" then
         local ys = { 0.40, 1.10, 1.74, 2.02 }
         return ys[gy] or (Renderer3D.SLOT_START_Y + (gy - 1) * Renderer3D.SLOT_STEP_Y)
@@ -815,6 +913,36 @@ function Renderer3D:_buildPegMesh(radius, height, segs)
         end
     end
 
+    return love.graphics.newMesh(VERTEX_FORMAT, verts, "triangles", "static")
+end
+
+-- Конусный бильярдный кий (утолщённый турняк снизу и тонкая наклейка с мелом сверху)
+function Renderer3D:_buildCuePegMesh(radiusBot, radiusTop, height, segs)
+    local verts = {}
+    for i = 0, segs - 1 do
+        local a0 = (i / segs) * math.pi * 2
+        local a1 = ((i + 1) / segs) * math.pi * 2
+        local c0, s0 = math.cos(a0), math.sin(a0)
+        local c1, s1 = math.cos(a1), math.sin(a1)
+
+        local xb0, zb0 = c0 * radiusBot, s0 * radiusBot
+        local xb1, zb1 = c1 * radiusBot, s1 * radiusBot
+        local xt0, zt0 = c0 * radiusTop, s0 * radiusTop
+        local xt1, zt1 = c1 * radiusTop, s1 * radiusTop
+
+        table.insert(verts, { xb0, 0,      zb0, c0, 0.08, s0 })
+        table.insert(verts, { xb1, 0,      zb1, c1, 0.08, s1 })
+        table.insert(verts, { xt1, height, zt1, c1, 0.08, s1 })
+
+        table.insert(verts, { xb0, 0,      zb0, c0, 0.08, s0 })
+        table.insert(verts, { xt1, height, zt1, c1, 0.08, s1 })
+        table.insert(verts, { xt0, height, zt0, c0, 0.08, s0 })
+
+        -- Закруглённая наклейка мела на вершине кия
+        table.insert(verts, { 0, height + 0.015, 0, 0, 1, 0 })
+        table.insert(verts, { xt1, height, zt1, c1 * 0.4, 0.9, s1 * 0.4 })
+        table.insert(verts, { xt0, height, zt0, c0 * 0.4, 0.9, s0 * 0.4 })
+    end
     return love.graphics.newMesh(VERTEX_FORMAT, verts, "triangles", "static")
 end
 
@@ -1536,6 +1664,8 @@ function Renderer3D:_getPieceMaterialAndMesh(pieceSkin, player, gy)
         return 7.0, self.meshSquareBlock
     elseif style == "skyscraper_block" then
         return 19.0, self.meshSquareBlock
+    elseif style == "billiard_ball" then
+        return (player == 1) and 24.0 or 25.0, self.meshSphere
     end
     return 0.0, self.meshTorus
 end
@@ -1617,7 +1747,8 @@ function Renderer3D:renderScene(screenW, screenH, state)
     local isSkyscraperBoard = (bStyle == "skyscraper")
     local isManhattanBoard  = (bStyle == "manhattan")
     local isChernobylBoard  = (bStyle == "chernobyl")
-    local isRound   = (state.config.boardShape == "round") and (not boardSkin.forceSquare) and (not isChernobylBoard) and (not isManhattanBoard)
+    local isBilliardBoard   = (bStyle == "billiard")
+    local isRound   = (state.config.boardShape == "round") and (not boardSkin.forceSquare) and (not isChernobylBoard) and (not isManhattanBoard) and (not isBilliardBoard)
     local baseMatType = isForestBoard and 5.0
         or (isMetalBoard and 7.0)
         or (isCakeBoard and 8.0)
@@ -1625,16 +1756,19 @@ function Renderer3D:renderScene(screenW, screenH, state)
         or (isJapaneseBoard and 13.0)
         or ((isSkyscraperBoard or isManhattanBoard) and 11.0)
         or (isChernobylBoard and 20.0)
+        or (isBilliardBoard and 22.0)
         or 0.0
     local pegMatType = isForestBoard and 6.0
         or ((isMetalBoard or isSkyscraperBoard or isManhattanBoard) and 7.0)
         or (isCakeBoard and 9.0)
         or (isChernobylBoard and 21.0)
+        or (isBilliardBoard and 23.0)
         or 0.0
     local rimMatType = isForestBoard and 6.0
         or ((isMetalBoard or isSkyscraperBoard or isChernobylBoard) and 7.0)
         or (isCakeBoard and 9.0)
         or (isJapaneseBoard and 13.0)
+        or (isBilliardBoard and 22.0)
         or 0.0
 
     -- 1. Отрисовка базы поля (или 16 небоскрёбов для Манхэттена / крыша пагоды / башня)
@@ -1895,15 +2029,16 @@ function Renderer3D:renderScene(screenW, screenH, state)
                     )
                 end
             else
+                local pegMesh = isBilliardBoard and self.meshCuePeg or self.meshPeg
                 self:_drawMeshTransform(
-                    self.meshPeg,
+                    pegMesh,
                     { wx, 0.0, wz },
                     { pegScaleXZ, 0, 0 },
                     { 0, 1, 0 },
                     { 0, 0, pegScaleXZ },
                     pColor,
                     pEmissive,
-                    (isMetalBoard or isSkyscraperBoard) and 0.88 or 0.32,
+                    (isMetalBoard or isSkyscraperBoard or isBilliardBoard) and 0.85 or 0.32,
                     boardSkin.woodStrength,
                     1.35,
                     pegMatType
@@ -1930,16 +2065,28 @@ function Renderer3D:renderScene(screenW, screenH, state)
     end
 
     -- 3. Если это демо-сцена миттельшпиля в меню — рисуем разбросанные рядом с полем фишки (кроме Манхэттена без пола)
+    local BILLIARD_PALETTE = {
+        { 0.96, 0.78, 0.08, 1.0 }, -- 1 / 9: Жёлтый
+        { 0.10, 0.34, 0.88, 1.0 }, -- 2 / 10: Синий
+        { 0.88, 0.14, 0.14, 1.0 }, -- 3 / 11: Красный
+        { 0.44, 0.14, 0.72, 1.0 }, -- 4 / 12: Фиолетовый
+        { 0.96, 0.42, 0.08, 1.0 }, -- 5 / 13: Оранжевый
+        { 0.08, 0.56, 0.24, 1.0 }, -- 6 / 14: Изумрудно-зелёный
+        { 0.54, 0.10, 0.16, 1.0 }, -- 7 / 15: Бордовый
+    }
     if state.showScattered and not isManhattanBoard then
-        for _, sp in ipairs(self.scatteredPieces) do
-            local col = (sp.player == 1) and pieceSkin.player1Color or pieceSkin.player2Color
+        for spIdx, sp in ipairs(self.scatteredPieces) do
+            local isBall = (pieceSkin.style == "billiard_ball")
+            local col = isBall and BILLIARD_PALETTE[((spIdx - 1) % #BILLIARD_PALETTE) + 1] or ((sp.player == 1) and pieceSkin.player1Color or pieceSkin.player2Color)
+            local sSc = isBall and 0.64 or 1.0
+            local syOff = isBall and 0.11 or 0.0
             local matType, pMesh = self:_getPieceMaterialAndMesh(pieceSkin, sp.player)
             self:_drawMeshTransform(
                 pMesh,
-                { sp.x, sp.y, sp.z },
-                { 1, sp.tiltX, 0 },
-                { -sp.tiltX, 1, sp.tiltZ },
-                { 0, -sp.tiltZ, 1 },
+                { sp.x, sp.y + syOff, sp.z },
+                { sSc, sp.tiltX * sSc, 0 },
+                { -sp.tiltX * sSc, sSc, sp.tiltZ * sSc },
+                { 0, -sp.tiltZ * sSc, sSc },
                 col,
                 { 0, 0, 0 },
                 pieceSkin.specular,
@@ -2033,6 +2180,14 @@ function Renderer3D:renderScene(screenW, screenH, state)
                         dockFlash = math.max(0.0, dockFlash)
                     end
                 end
+            elseif pSkin.style == "billiard_ball" then
+                -- Разноцветные бильярдные шары (без белого и чёрного) с диаметром 0.64 — стоят вплотную без зазоров
+                local bIdx = ((gx * 5 + gz * 3 + gy * 7) % #BILLIARD_PALETTE) + 1
+                local bCol = BILLIARD_PALETTE[bIdx]
+                baseCol = { bCol[1], bCol[2], bCol[3], overrideAlpha or 1.0 }
+                taperXZ = 0.64
+                scaleY = 0.64
+                spinAngle = -0.35 + ((gx * 3 + gz * 5 + gy * 2) % 7) * 0.12
             elseif pSkin.taperByHeight then
                 taperXZ = 1.28 - (gy - 1) * 0.19
             end
@@ -2576,6 +2731,28 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
                     { 1.00, 0.82, 0.16, 1.0 }, { 0.38, 0.26, 0.04 }, 0.95, 0.0, 1.0, 7.0
                 )
             end
+        elseif itemData.style == "billiard_ball" then
+            -- Превью бильярдных шаров: Solid (слева, насыщенно-красный) и Stripes (справа, королевский синий)
+            local s = 0.64
+            local axX = { ca * s, 0, -sa * s }
+            local axY = { 0, s, 0 }
+            local axZ = { sa * s, 0, ca * s }
+            drawPrev(
+                mesh1,
+                { -0.62, 0.42, 0.0 },
+                axX, axY, axZ,
+                { 0.88, 0.14, 0.14, 1.0 },
+                { 0, 0, 0 },
+                itemData.specular or 0.98, 0.0, 1.0, mat1
+            )
+            drawPrev(
+                mesh2,
+                { 0.62, 0.42, 0.0 },
+                axX, axY, axZ,
+                { 0.10, 0.34, 0.88, 1.0 },
+                { 0, 0, 0 },
+                itemData.specular or 0.98, 0.0, 1.0, mat2
+            )
         else
             -- Два крутящихся 3D-бублика или квадратных блока (первый и второй игрок) с увеличенным зазором, чтобы не пересекались при вращении
             local s = (itemData.style == "iron_block" or itemData.style == "skyscraper_block") and 1.04 or 1.15
@@ -2637,6 +2814,7 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
         local isSnowy  = (bStyle == "snow" or bStyle == "snowy")
         local isJap    = (bStyle == "japanese_roof")
         local isCity   = (bStyle == "skyscraper" or isManh)
+        local isBill   = (bStyle == "billiard")
         local matId    = isForest and 5.0
             or (isMetal and 7.0)
             or (isCake and 8.0)
@@ -2644,6 +2822,7 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
             or (isJap and 13.0)
             or (isCity and 11.0)
             or (isChern and 20.0)
+            or (isBill and 22.0)
             or 0.0
         drawPrev(
             mesh,
@@ -2658,24 +2837,24 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
             1.2,
             matId
         )
-        -- Пара мини-столбиков сверху (или шпили с красными огоньками для Манхэттена / широкие трубы с дымом для ЧАЭС)
+        -- Пара мини-столбиков сверху (или шпили с красными огоньками для Манхэттена / широкие трубы с дымом для ЧАЭС / бильярдные кии)
         local prevTime = love.timer.getTime()
         for pIdx, off in ipairs({ {-0.3, -0.3}, {0.3, -0.3}, {-0.3, 0.3}, {0.3, 0.3} }) do
             local rx = off[1] * ca - off[2] * sa
             local rz = off[1] * sa + off[2] * ca
-            local pegScale = isCity and 0.22 or (isChern and 0.62 or 0.35)
+            local pegScale = isCity and 0.22 or (isChern and 0.62 or (isBill and 0.48 or 0.35))
             drawPrev(
-                self.meshPeg,
+                isBill and self.meshCuePeg or self.meshPeg,
                 { rx, -0.02, rz },
                 { pegScale, 0, 0 },
-                { 0, isCity and 0.28 or (isChern and 0.32 or 0.22), 0 },
+                { 0, isCity and 0.28 or (isChern and 0.32 or (isBill and 0.26 or 0.22)), 0 },
                 { 0, 0, pegScale },
                 itemData.pegColor,
                 { 0, 0, 0 },
-                (isMetal or isCity) and 0.90 or 0.3,
+                (isMetal or isCity or isBill) and 0.90 or 0.3,
                 itemData.woodStrength or 0.9,
                 1.5,
-                isForest and 6.0 or ((isMetal or isCity) and 7.0 or (isCake and 9.0 or (isChern and 21.0 or 0.0)))
+                isForest and 6.0 or ((isMetal or isCity) and 7.0 or (isCake and 9.0 or (isChern and 21.0 or (isBill and 23.0 or 0.0))))
             )
             if isManh and not isSil then
                 local prevPhases = { 0.0, 2.3, 4.1, 1.2 }

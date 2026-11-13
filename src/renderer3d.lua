@@ -171,27 +171,38 @@ local SHADER_PIXEL = [[
             surfaceAlbedo = mix(doughColor, glazeColor, icingMask);
             specFactor = mix(0.14, 0.92, icingMask);
         } else if (u_materialType > 1.5 && u_materialType < 2.5) {
-            // 2: Глубокая текстура хвои с лёгкой гирляндой и игрушками
-            float rFrac = clamp(length(v_localPos.xz) / 0.49, 0.0, 1.0);
+            // 2: Пушистая живая хвоя с неравномерной припорошенностью снегом и тёплыми огоньками
+            float rFrac = clamp(length(v_localPos.xz) / 0.55, 0.0, 1.0);
             float ang = atan(v_localPos.z, v_localPos.x);
-            float needle = woodNoise3(vec3(v_localPos.x * 36.0, v_localPos.y * 22.0, v_localPos.z * 36.0));
-            float fineFrond = 0.5 + 0.5 * sin(ang * 40.0 + rFrac * 18.0);
-            float boughAO = mix(0.32, 0.96, pow(rFrac, 0.72));
-            vec3 pineCol = u_baseColor.rgb * boughAO * (0.68 + 0.24 * needle + 0.14 * fineFrond);
+            float needle = woodNoise3(vec3(v_localPos.x * 42.0, v_localPos.y * 28.0, v_localPos.z * 42.0));
+            float fineFrond = 0.5 + 0.5 * sin(ang * 44.0 + rFrac * 22.0 + needle * 3.0);
+            float boughAO = mix(0.28, 1.02, pow(rFrac, 0.65));
+            vec3 pineCol = u_baseColor.rgb * boughAO * (0.64 + 0.26 * needle + 0.18 * fineFrond);
+
+            // Припорошенность снегом на верхних гранях и кончиках еловых лап
+            float snowCluster = woodNoise3(v_localPos * 9.5 + vec3(1.7, 3.1, 2.4)) * 0.62
+                              + woodNoise3(v_localPos * 24.0 + vec3(4.2, 0.9, 5.1)) * 0.38;
+            float upFacing = smoothstep(0.12, 0.68, N.y);
+            float branchTipBias = smoothstep(0.18, 0.85, rFrac) * 0.42 + smoothstep(0.10, 0.55, v_localPos.y) * 0.25;
+            float snowMask = smoothstep(0.42, 0.68, snowCluster + branchTipBias * 0.45) * upFacing;
+            float rimFrost = smoothstep(0.68, 0.98, rFrac) * smoothstep(0.05, 0.50, N.y) * smoothstep(0.32, 0.72, needle);
+            snowMask = clamp(max(snowMask, rimFrost * 0.85), 0.0, 0.94);
+
             // Мини-шарики/огоньки ближе к краям ярусов
             float seg = mod(ang + 3.14159, 1.256637) - 0.628318;
-            float dBauble = length(vec3(rFrac - 0.74, seg * 0.74, (v_localPos.y + 0.12) * 1.45));
-            if (rFrac > 0.56 && dBauble < 0.088) {
+            float dBauble = length(vec3(rFrac - 0.72, seg * 0.74, (v_localPos.y + 0.08) * 1.45));
+            if (rFrac > 0.52 && dBauble < 0.092) {
                 float idx = floor((ang + 3.14159) / 1.256637);
                 float isAlt = mod(idx, 2.0);
                 float twinkle = 0.65 + 0.35 * sin(u_time * 3.6 + idx * 1.7 + v_worldPos.y * 4.0);
                 vec3 baubleCol = (isAlt < 0.5) ? vec3(1.00, 0.80, 0.18) : vec3(0.96, 0.20, 0.22);
-                surfaceAlbedo = baubleCol;
-                extraGlow += baubleCol * (0.28 * twinkle);
+                surfaceAlbedo = mix(baubleCol, vec3(0.95, 0.97, 1.00), snowMask * 0.25);
+                extraGlow += baubleCol * (0.30 * twinkle);
                 specFactor = 0.92;
             } else {
-                surfaceAlbedo = pineCol;
-                specFactor = 0.16;
+                vec3 snowCol = mix(vec3(0.86, 0.92, 0.99), vec3(0.98, 0.99, 1.00), 0.55 + 0.45 * needle);
+                surfaceAlbedo = mix(pineCol, snowCol, snowMask);
+                specFactor = mix(0.14, 0.48, snowMask);
             }
         } else if (u_materialType > 2.5 && u_materialType < 3.5) {
             // 3: Ядерный Уран (Glowing & Blinking Radioactive Uranium-235)
@@ -536,7 +547,8 @@ function Renderer3D.new()
 
     -- Процедурные 3D-меши
     self.meshTorus     = self:_buildTorusMesh(0.335, 0.165, 36, 22)
-    self.meshPineTier  = self:_buildPineTierMesh(36, 18)
+    self.meshPineTier  = self:_buildPineTierMesh(56, 14)
+    self.meshPineTop   = self:_buildPineTopMesh(44)
     self.meshPeg       = self:_buildPegMesh(Renderer3D.PEG_RADIUS, Renderer3D.PEG_HEIGHT, 24)
     self.meshCylinder  = self:_buildUnitCylinderMesh(24)
     self.meshRoundBase    = self:_buildCappedDiscMesh(64)
@@ -698,32 +710,44 @@ function Renderer3D:_buildTorusMesh(majorR, minorR, ringSegs, tubeSegs)
     return love.graphics.newMesh(VERTEX_FORMAT, verts, "triangles", "static")
 end
 
--- Конусообразный ярус пышных еловых лап
+-- Пышный, живой и неровный ("неказистый") ярус еловых лап
 function Renderer3D:_buildPineTierMesh(ringSegs, tubeSegs)
     local verts = {}
-    local innerR = 0.156 -- плотно прилегает к штырю (радиус штыря 0.15)
-    local outerR = 0.495 -- размах еловых лап
-    local yTop   = 0.345
-    local yBot   = -0.335
+    local innerR = 0.154 -- плотно прилегает к штырю (радиус штыря 0.15)
+    local outerR = 0.545 -- более пышный размах живых ветвей
+    local yTop   = 0.39
+    local yBot   = -0.35
+
+    local function branchWave(u, v)
+        -- Несимметричная природная разнодлинность лап и мелкие еловые побеги
+        local mainBoughs = 0.17 * math.cos(u * 7.0 + 0.35) + 0.11 * math.sin(u * 11.0 - 0.85)
+        local subTwigs   = 0.075 * math.cos(u * 17.0 + 1.40) + 0.045 * math.sin(u * 29.0 + 0.60)
+        local tipSpread  = 0.35 + 0.65 * v
+        return 1.0 + (mainBoughs + subTwigs) * tipSpread
+    end
 
     local function getPoint(u, v)
         local cu, su = math.cos(u), math.sin(u)
-        local wave = 1.0 + 0.14 * math.cos(u * 10.0) + 0.04 * math.cos(u * 20.0)
+        local wave = branchWave(u, v)
         local r = innerR + (outerR * wave - innerR) * v
         local px = r * cu
-        local py = yTop + (yBot - yTop) * (v ^ 1.35) + 0.025 * math.sin(v * math.pi)
+        -- Свисающие лапы с лёгкой волнистостью и приподнятыми игольчатыми кончиками
+        local boughSag = 0.055 * math.sin(u * 7.0 - 0.4) * (v ^ 1.2) + 0.025 * math.cos(u * 13.0 + 1.1) * v
+        local tipCurl  = 0.045 * math.sin(v * math.pi) + 0.024 * math.max(0.0, v - 0.75) * 4.0 * math.cos(u * 11.0)
+        local py = yTop + (yBot - yTop) * (v ^ 1.28) + boughSag + tipCurl
         local pz = r * su
 
-        local slope = (yBot - yTop) / (outerR - innerR)
-        local nx = cu * (-slope) + 0.14 * math.sin(u * 10.0) * (-su)
-        local ny = 1.0
-        local nz = su * (-slope) + 0.14 * math.sin(u * 10.0) * cu
+        local eps = 0.05
+        local w1 = branchWave(u + eps, v)
+        local nx = cu * 0.72 + (w1 - wave) * 1.8 * (-su)
+        local ny = 0.88 + 0.16 * math.cos(u * 11.0)
+        local nz = su * 0.72 + (w1 - wave) * 1.8 * cu
         local nl = math.sqrt(nx*nx + ny*ny + nz*nz)
         return { px, py, pz, nx/nl, ny/nl, nz/nl }
     end
 
-    local uSteps = ringSegs or 36
-    local vSteps = tubeSegs or 10
+    local uSteps = ringSegs or 56
+    local vSteps = tubeSegs or 14
     for i = 0, uSteps - 1 do
         local u0 = (i / uSteps) * math.pi * 2
         local u1 = ((i + 1) / uSteps) * math.pi * 2
@@ -739,14 +763,16 @@ function Renderer3D:_buildPineTierMesh(ringSegs, tubeSegs)
             table.insert(verts, p00); table.insert(verts, p10); table.insert(verts, p11)
             table.insert(verts, p00); table.insert(verts, p11); table.insert(verts, p01)
 
-            local drop = 0.055
-            table.insert(verts, { p00[1], p00[2] - drop, p00[3], 0, -1, 0 })
-            table.insert(verts, { p11[1], p11[2] - drop, p11[3], 0, -1, 0 })
-            table.insert(verts, { p10[1], p10[2] - drop, p10[3], 0, -1, 0 })
+            -- Объёмная толстая нижняя крона ветвей
+            local drop0 = 0.045 + 0.075 * (1.0 - v0)
+            local drop1 = 0.045 + 0.075 * (1.0 - v1)
+            table.insert(verts, { p00[1], p00[2] - drop0, p00[3], 0, -1, 0 })
+            table.insert(verts, { p11[1], p11[2] - drop1, p11[3], 0, -1, 0 })
+            table.insert(verts, { p10[1], p10[2] - drop0, p10[3], 0, -1, 0 })
 
-            table.insert(verts, { p00[1], p00[2] - drop, p00[3], 0, -1, 0 })
-            table.insert(verts, { p01[1], p01[2] - drop, p01[3], 0, -1, 0 })
-            table.insert(verts, { p11[1], p11[2] - drop, p11[3], 0, -1, 0 })
+            table.insert(verts, { p00[1], p00[2] - drop0, p00[3], 0, -1, 0 })
+            table.insert(verts, { p01[1], p01[2] - drop1, p01[3], 0, -1, 0 })
+            table.insert(verts, { p11[1], p11[2] - drop1, p11[3], 0, -1, 0 })
         end
     end
 
@@ -999,7 +1025,53 @@ function Renderer3D:_buildPineConeTipMesh(segs)
     return love.graphics.newMesh(VERTEX_FORMAT, verts, "triangles", "static")
 end
 
--- Объёмная 5-конечная звезда на макушку ёлки
+-- Живая пушистая многоуровневая верхушка ёлки (без отверстия под штырь, с выступающими веточками)
+function Renderer3D:_buildPineTopMesh(segs)
+    local verts = {}
+    local baseR = 0.56
+    local yBot, yTop = -0.35, 0.70
+    local nSegs = segs or 44
+    local nRings = 11
+
+    local function pt(a, t)
+        local c, s = math.cos(a), math.sin(a)
+        local boughStep = 1.0 + 0.16 * math.sin(t * math.pi * 5.0) * (1.0 - t * 0.5)
+        local twigWave = 1.0 + (0.16 * math.cos(a * 7.0 + t * 2.2) + 0.10 * math.sin(a * 11.0 - 0.6) + 0.06 * math.cos(a * 19.0)) * (1.0 - t * 0.62)
+        local profile = (1.0 - t) ^ 0.64
+        local r = baseR * boughStep * twigWave * profile
+        local yJitter = 0.025 * math.sin(a * 7.0 + t * 3.0) * (1.0 - t)
+        local y = yBot + (yTop - yBot) * t + yJitter
+        local nx, ny, nz = c * 0.80, 0.60, s * 0.80
+        local nl = math.sqrt(nx*nx + ny*ny + nz*nz)
+        return { c * r, y, s * r, nx/nl, ny/nl, nz/nl }
+    end
+
+    for i = 0, nSegs - 1 do
+        local a0 = (i / nSegs) * math.pi * 2
+        local a1 = ((i + 1) / nSegs) * math.pi * 2
+        for j = 0, nRings - 1 do
+            local t0 = j / nRings
+            local t1 = (j + 1) / nRings
+            if j < nRings - 1 then
+                local p00 = pt(a0, t0); local p10 = pt(a1, t0)
+                local p11 = pt(a1, t1); local p01 = pt(a0, t1)
+                table.insert(verts, p00); table.insert(verts, p10); table.insert(verts, p11)
+                table.insert(verts, p00); table.insert(verts, p11); table.insert(verts, p01)
+            else
+                local p00 = pt(a0, t0); local p10 = pt(a1, t0)
+                table.insert(verts, p00)
+                table.insert(verts, p10)
+                table.insert(verts, { 0, yTop, 0, (p00[4]+p10[4])*0.5, 0.8, (p00[6]+p10[6])*0.5 })
+            end
+        end
+
+        local b0 = pt(a0, 0.0); local b1 = pt(a1, 0.0)
+        table.insert(verts, { 0, yBot, 0, 0, -1, 0 })
+        table.insert(verts, { b0[1], yBot, b0[3], 0, -1, 0 })
+        table.insert(verts, { b1[1], yBot, b1[3], 0, -1, 0 })
+    end
+    return love.graphics.newMesh(VERTEX_FORMAT, verts, "triangles", "static")
+end
 function Renderer3D:_buildStarMesh(outerR, innerR, depth)
     local verts = {}
     local R = outerR or 0.24
@@ -1406,7 +1478,7 @@ function Renderer3D:_getPieceMaterialAndMesh(pieceSkin, player, gy)
         return 1.0, self.meshTorus
     elseif style == "pine" then
         if gy == 4 then
-            return 2.0, self.meshPineConeTip
+            return 2.0, self.meshPineTop
         end
         return 2.0, self.meshPineTier
     elseif style == "nuclear" then
@@ -1731,24 +1803,12 @@ function Renderer3D:renderScene(screenW, screenH, state)
                 local topY = Renderer3D.PEG_HEIGHT
                 local spireH = topY - roofY
                 local spireScaleY = spireH / Renderer3D.PEG_HEIGHT
-                -- Рассинхронное попеременное свечение и полное затухание каждого штыря/маячка
+                -- Штырь остаётся обычным стальным; вразнобой мигает и полностью тухнет только красная лампочка-пимпочка сверху
                 local spirePhases = { 0.00, 2.71, 5.14, 1.38, 4.22, 0.79, 3.65, 5.89, 2.04, 4.91, 1.12, 3.31, 5.47, 0.43, 2.44, 4.58 }
                 local spireFreqs  = { 0.85, 1.24, 0.71, 1.43, 0.96, 1.57, 0.79, 1.18, 1.07, 0.66, 1.36, 0.88, 1.29, 0.74, 1.12, 0.92 }
                 local t = state.staticBoardAnim and 0.0 or love.timer.getTime()
                 local rawWave = math.sin(t * spireFreqs[idx] + spirePhases[idx])
                 local beaconPulse = state.staticBoardAnim and ((idx % 3 == 0) and 0.92 or 0.0) or math.pow(math.max(0.0, rawWave), 1.35)
-
-                local spireColor = pColor
-                local spireEmissive = pEmissive
-                if not isHovered and beaconPulse > 0.01 then
-                    spireColor = {
-                        math.min(1.0, pColor[1] + 0.34 * beaconPulse),
-                        math.max(0.0, pColor[2] * (1.0 - 0.35 * beaconPulse) + 0.04 * beaconPulse),
-                        math.max(0.0, pColor[3] * (1.0 - 0.38 * beaconPulse) + 0.03 * beaconPulse),
-                        1.0
-                    }
-                    spireEmissive = { 0.62 * beaconPulse, 0.09 * beaconPulse, 0.06 * beaconPulse }
-                end
 
                 self:_drawMeshTransform(
                     self.meshPeg,
@@ -1756,8 +1816,8 @@ function Renderer3D:renderScene(screenW, screenH, state)
                     { pegScaleXZ, 0, 0 },
                     { 0, spireScaleY, 0 },
                     { 0, 0, pegScaleXZ },
-                    spireColor,
-                    spireEmissive,
+                    pColor,
+                    pEmissive,
                     0.92,
                     0.0,
                     1.35,
@@ -1890,9 +1950,10 @@ function Renderer3D:renderScene(screenW, screenH, state)
             local spinAngle = 0.0
             local dockFlash = 0.0
             if pSkin.style == "pine" then
-                -- Ёлка: нижний ярус широкий, верхушка пушистым конусом закрывает штырь
-                taperXZ = 1.24 - (gy - 1) * 0.14
-                scaleY = 1.0
+                -- Пышная несимметричная ёлка: ярусы чуть повёрнуты друг относительно друга для живого силуэта
+                taperXZ = 1.28 - (gy - 1) * 0.13
+                scaleY = 1.06
+                spinAngle = (gy - 1) * 1.42 + gx * 0.73 + gz * 1.19
             elseif pSkin.style == "snowman" then
                 if gy == 1 then
                     taperXZ, scaleY = 1.04, 0.80
@@ -2449,18 +2510,20 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
                 )
             end
         elseif itemData.style == "pine" or itemData.taperByHeight then
-            -- Собранная 4-ярусная ёлочка с макушкой-звездой
+            -- Собранная пышная 4-ярусная ёлочка в снегу с макушкой-звездой
             for gy = 1, 4 do
                 local matG, meshG = self:_getPieceMaterialAndMesh(itemData, 1, gy)
-                local taper = (1.24 - (gy - 1) * 0.14) * 1.08
+                local taper = (1.28 - (gy - 1) * 0.13) * 1.08
                 local py = -0.68 + (gy - 1) * 0.42
                 local col = (gy % 2 == 1) and itemData.player1Color or itemData.player2Color
+                local angG = angle + (gy - 1) * 1.42
+                local cG, sG = math.cos(angG), math.sin(angG)
                 drawPrev(
                     meshG,
                     { 0.0, py, 0.0 },
-                    { ca * taper, 0, sa * taper },
-                    { 0, 1.0, 0 },
-                    { -sa * taper, 0, ca * taper },
+                    { cG * taper, 0, sG * taper },
+                    { 0, 1.06, 0 },
+                    { -sG * taper, 0, cG * taper },
                     col,
                     { 0, 0, 0 },
                     itemData.specular or 0.35,

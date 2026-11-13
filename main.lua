@@ -787,13 +787,23 @@ function love.load()
         assert(pTot == 100 and Config.dailyProgress.coinsEarned == 100, "Expected strict 100/day coin cap across all sources")
         assert(Config.earnDailyCoins(5, false, "2099-01-01") == 0, "Expected 0 coins once daily limit reached")
 
-        -- Проверка рендера поля Чернобыль + Манхэттен с небоскрёбами (board + shop preview)
+        -- Проверка рендера поля Чернобыль + Манхэттен с небоскрёбами, анимацией падения и защитой луны + снежное поле (snowy_winter)
         Config.activeBoardSkin = "manhattan"
         Config.activePieceSkin = "skyscraper_blocks"
+        renderer:rotateCamera(20, -42)
         renderer:renderScene(800, 600, {
             config = Config, logic = gameLogic, maxPly = #gameLogic.moveHistory,
             clipOffsetX = 0.0, clipOffsetY = 0.04,
+            moonScreenX = 648, moonScreenY = 84,
+            activeDrop = { x = 1, y = 1, z = 1, startY = 3.45, targetY = 0.44, currentY = 1.80, elapsed = 0.12, duration = 0.40 },
             boardSkinOverride = Config.boardSkins.manhattan
+        })
+        renderer:resetCamera()
+        Config.activeBoardSkin = "snowy_winter"
+        renderer:renderScene(800, 600, {
+            config = Config, logic = gameLogic, maxPly = #gameLogic.moveHistory,
+            clipOffsetX = 0.0, clipOffsetY = 0.04,
+            boardSkinOverride = Config.boardSkins.snowy_winter
         })
         Config.activeBoardSkin = "chernobyl"
         renderer:renderScene(800, 600, {
@@ -4077,7 +4087,7 @@ local function drawManhattanNightSky(w, h, animateStars)
     -- Луна с мягким ночным ореолом и кратерами
     local isMenuPos = (currentScreen ~= "game")
     local moonX = isMenuPos and (w * 0.64) or (w * 0.81)
-    local moonY = h * 0.16
+    local moonY = h * 0.14
     local moonR = math.max(22, math.min(w, h) * 0.050)
     love.graphics.setColor(0.55, 0.70, 0.98, 0.05)
     love.graphics.circle("fill", moonX, moonY, moonR * 3.0)
@@ -4094,6 +4104,7 @@ local function drawManhattanNightSky(w, h, animateStars)
     love.graphics.circle("fill", moonX + moonR * 0.06, moonY - moonR * 0.36, moonR * 0.13)
     love.graphics.setColor(0.03, 0.05, 0.11, 0.24)
     love.graphics.circle("fill", moonX - moonR * 0.42, moonY - moonR * 0.12, moonR * 0.88)
+    return moonX, moonY
 end
 
 function love.draw()
@@ -4106,8 +4117,9 @@ function love.draw()
         and { 0.014, 0.020, 0.045, 1.0 }
         or ui.bgClear
     love.graphics.clear(clearCol[1], clearCol[2], clearCol[3], 1.0, true, true)
+    local moonSX, moonSY = nil, nil
     if isManhattanBg then
-        drawManhattanNightSky(realW, realH, currentScreen == "game")
+        moonSX, moonSY = drawManhattanNightSky(realW, realH, currentScreen == "game")
     end
     uiButtons = {}
 
@@ -4125,6 +4137,8 @@ function love.draw()
             coordFont         = fonts.coord,
             clipOffsetX       = 0.0,
             clipOffsetY       = 0.04,
+            moonScreenX       = moonSX,
+            moonScreenY       = moonSY,
             boardSkinOverride = bOv,
             whitePieceSkin    = wPS,
             blackPieceSkin    = bPS
@@ -4153,6 +4167,8 @@ function love.draw()
             coordFont       = fonts.coord,
             clipOffsetX     = isPortrait and 0.0 or 0.27,
             clipOffsetY     = isPortrait and 0.36 or 0.10,
+            moonScreenX     = moonSX,
+            moonScreenY     = moonSY,
             staticBoardAnim = (Config.activeBoardSkin == "manhattan")
         })
 

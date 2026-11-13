@@ -80,6 +80,7 @@ local SHADER_PIXEL = [[
     uniform float u_materialType; // 0=wood, 1=donut, 2=pine, 3=uranium, 4=graphite, 5=forest_grass, 6=tree_bark, ..., 18=manhattan_clouds
     uniform LOVE_HIGHP_OR_MEDIUMP float u_time;
     uniform LOVE_HIGHP_OR_MEDIUMP float u_cloudTime;
+    uniform LOVE_HIGHP_OR_MEDIUMP vec3  u_moonRayDir;
 
     varying LOVE_HIGHP_OR_MEDIUMP vec3 v_worldPos;
     varying LOVE_HIGHP_OR_MEDIUMP vec3 v_localPos;
@@ -396,7 +397,7 @@ local SHADER_PIXEL = [[
             extraGlow += surfaceAlbedo * 0.28;
             specFactor = 0.85;
         } else if (u_materialType > 17.5 && u_materialType < 18.5) {
-            // 18: Бесконечный ночной туман/облака Манхэттена (стабилизирован по горизонту — не вращается при орбите камеры, плывёт в 1 сторону)
+            // 18: Ночной туман/облака Манхэттена (не вращается с камерой, плывёт в 1 сторону, не "поедает" луну)
             vec2 relXZ = v_worldPos.xz - u_eyePos.xz;
             vec2 camCloudXZ = vec2(dot(relXZ, u_camHorizRight), dot(relXZ, u_camHorizFwd));
             vec2 windDir = vec2(0.14, 0.02);
@@ -404,18 +405,22 @@ local SHADER_PIXEL = [[
             vec2 uv2 = camCloudXZ * 0.54 - windDir * (u_cloudTime * 1.45) + vec2(3.7, 8.2);
             float n = cloudNoise2(uv1) * 0.66 + cloudNoise2(uv2) * 0.34;
             float distCenter = length(v_worldPos.xz);
-            float horizonBlend = smoothstep(9.0, 32.0, distCenter);
+            // Густой покров прямо под 16 башнями (радиус ~4) и плавное растворение к горизонту без резких границ и сплошной завесы неба
+            float cityCloudMask = 1.0 - smoothstep(6.2, 20.5, distCenter);
             vec3 horizonCol = vec3(0.036, 0.052, 0.118);
             vec3 cloudDark  = vec3(0.046, 0.066, 0.136);
             vec3 cloudLight = vec3(0.19, 0.26, 0.42);
-            float cityWarm = smoothstep(5.8, 0.6, distCenter) * 0.24;
+            float cityWarm = smoothstep(5.8, 0.6, distCenter) * 0.26;
             vec3 col = mix(cloudDark, cloudLight, smoothstep(0.26, 0.78, n));
             col += vec3(0.32, 0.24, 0.15) * cityWarm * (0.45 + 0.55 * n);
-            col = mix(col, horizonCol, horizonBlend * 0.92);
+            col = mix(col, horizonCol, smoothstep(7.5, 19.0, distCenter) * 0.75);
             float wisps = smoothstep(0.24, 0.76, n);
-            float isLowerSea = step(1.70, -v_worldPos.y);
-            float layerA = mix(mix(0.14, 0.88, wisps), 0.98, isLowerSea);
-            outAlpha = clamp(u_baseColor.a * mix(layerA, 0.94, horizonBlend), 0.0, 1.0);
+            float isLowerSea = step(1.90, -v_worldPos.y);
+            float layerA = mix(mix(0.14, 0.88, wisps), 0.96, isLowerSea);
+            // Защита луны при любых наклонах и зуме камеры: мягко расступаемся в направлении луны
+            vec3 viewDir = normalize(v_worldPos - u_eyePos);
+            float moonClear = smoothstep(0.955, 0.992, dot(viewDir, normalize(u_moonRayDir)));
+            outAlpha = clamp(u_baseColor.a * layerA * cityCloudMask * (1.0 - moonClear * 0.95), 0.0, 1.0);
             return vec4(col + u_emissive * 0.30, outAlpha);
         } else if (u_materialType > 18.5 && u_materialType < 19.5) {
             // 19: Бесшовные блоки небоскрёба (белые и чёрные имеют одинаковый фасад — отличается только вкл/выкл свет в окнах)
@@ -1469,6 +1474,18 @@ function Renderer3D:renderScene(screenW, screenH, state)
 
     self:_send("u_time",       animTime)
     self:_send("u_cloudTime",  love.timer.getTime())
+    local moonRay = { 0.0, 1.0, 0.0 }
+    if state.moonScreenX and state.moonScreenY and screenW > 0 and screenH > 0 then
+        local mNdcX = ((state.moonScreenX / screenW) * 2.0 - 1.0) - clipOffsetX
+        local mNdcY = (1.0 - (state.moonScreenY / screenH) * 2.0) - clipOffsetY
+        local mr = vNorm({
+            x = self.camFwd.x + self.camRight.x * (mNdcX * aspect / f) + self.camUp.x * (mNdcY / f),
+            y = self.camFwd.y + self.camRight.y * (mNdcX * aspect / f) + self.camUp.y * (mNdcY / f),
+            z = self.camFwd.z + self.camRight.z * (mNdcX * aspect / f) + self.camUp.z * (mNdcY / f)
+        })
+        moonRay = { mr.x, mr.y, mr.z }
+    end
+    self:_send("u_moonRayDir", moonRay)
     self:_send("u_camPos",     { self.camPos.x,   self.camPos.y,   self.camPos.z   })
     self:_send("u_eyePos",     { self.camPos.x,   self.camPos.y,   self.camPos.z   })
     self:_send("u_camHorizRight", { hrX, hrZ })
@@ -1487,7 +1504,7 @@ function Renderer3D:renderScene(screenW, screenH, state)
     local isForestBoard     = (bStyle == "forest")
     local isMetalBoard      = (bStyle == "metal")
     local isCakeBoard       = (bStyle == "cake")
-    local isSnowyBoard      = (bStyle == "snowy")
+    local isSnowyBoard      = (bStyle == "snow" or bStyle == "snowy")
     local isJapaneseBoard   = (bStyle == "japanese_roof")
     local isSkyscraperBoard = (bStyle == "skyscraper")
     local isManhattanBoard  = (bStyle == "manhattan")
@@ -1714,48 +1731,73 @@ function Renderer3D:renderScene(screenW, screenH, state)
                 local topY = Renderer3D.PEG_HEIGHT
                 local spireH = topY - roofY
                 local spireScaleY = spireH / Renderer3D.PEG_HEIGHT
+                -- Рассинхронное попеременное свечение и полное затухание каждого штыря/маячка
+                local spirePhases = { 0.00, 2.71, 5.14, 1.38, 4.22, 0.79, 3.65, 5.89, 2.04, 4.91, 1.12, 3.31, 5.47, 0.43, 2.44, 4.58 }
+                local spireFreqs  = { 0.85, 1.24, 0.71, 1.43, 0.96, 1.57, 0.79, 1.18, 1.07, 0.66, 1.36, 0.88, 1.29, 0.74, 1.12, 0.92 }
+                local t = state.staticBoardAnim and 0.0 or love.timer.getTime()
+                local rawWave = math.sin(t * spireFreqs[idx] + spirePhases[idx])
+                local beaconPulse = state.staticBoardAnim and ((idx % 3 == 0) and 0.92 or 0.0) or math.pow(math.max(0.0, rawWave), 1.35)
+
+                local spireColor = pColor
+                local spireEmissive = pEmissive
+                if not isHovered and beaconPulse > 0.01 then
+                    spireColor = {
+                        math.min(1.0, pColor[1] + 0.34 * beaconPulse),
+                        math.max(0.0, pColor[2] * (1.0 - 0.35 * beaconPulse) + 0.04 * beaconPulse),
+                        math.max(0.0, pColor[3] * (1.0 - 0.38 * beaconPulse) + 0.03 * beaconPulse),
+                        1.0
+                    }
+                    spireEmissive = { 0.62 * beaconPulse, 0.09 * beaconPulse, 0.06 * beaconPulse }
+                end
+
                 self:_drawMeshTransform(
                     self.meshPeg,
                     { wx, roofY, wz },
                     { pegScaleXZ, 0, 0 },
                     { 0, spireScaleY, 0 },
                     { 0, 0, pegScaleXZ },
-                    pColor,
-                    pEmissive,
+                    spireColor,
+                    spireEmissive,
                     0.92,
                     0.0,
                     1.35,
                     7.0
                 )
-                -- Медленно и плавно мигающая красная лампочка на кончике шпиля + мягкий ореол (в статичном ММ не мерцает)
-                local t = state.staticBoardAnim and 0.0 or love.timer.getTime()
-                local beaconPulse = state.staticBoardAnim and 0.78 or (0.15 + 0.85 * math.pow(0.5 + 0.5 * math.sin(t * 1.1 + idx * 0.35), 1.6))
+                -- Маячок на вершине шпиля (загорается и полностью тухнет в рассинхрон)
+                local tipCol = {
+                    0.18 + 0.82 * beaconPulse,
+                    0.05 + 0.11 * beaconPulse,
+                    0.05 + 0.06 * beaconPulse,
+                    1.0
+                }
                 self:_drawMeshTransform(
                     self.meshSphere,
                     { wx, topY + 0.05, wz },
                     { 0.092, 0, 0 },
                     { 0, 0.092, 0 },
                     { 0, 0, 0.092 },
-                    { 1.00, 0.14, 0.10, 1.0 },
-                    { 1.35 * beaconPulse, 0.14 * beaconPulse, 0.10 * beaconPulse },
+                    tipCol,
+                    { 1.55 * beaconPulse, 0.16 * beaconPulse, 0.10 * beaconPulse },
                     0.95,
                     0.0,
                     1.0,
                     12.0
                 )
-                self:_drawMeshTransform(
-                    self.meshSphere,
-                    { wx, topY + 0.05, wz },
-                    { 0.165, 0, 0 },
-                    { 0, 0.165, 0 },
-                    { 0, 0, 0.165 },
-                    { 1.00, 0.16, 0.12, 0.24 * beaconPulse },
-                    { 0.90 * beaconPulse, 0.10 * beaconPulse, 0.06 * beaconPulse },
-                    0.0,
-                    0.0,
-                    1.0,
-                    0.0
-                )
+                if beaconPulse > 0.03 then
+                    self:_drawMeshTransform(
+                        self.meshSphere,
+                        { wx, topY + 0.05, wz },
+                        { 0.175, 0, 0 },
+                        { 0, 0.175, 0 },
+                        { 0, 0, 0.175 },
+                        { 1.00, 0.16, 0.12, 0.28 * beaconPulse },
+                        { 0.95 * beaconPulse, 0.10 * beaconPulse, 0.06 * beaconPulse },
+                        0.0,
+                        0.0,
+                        1.0,
+                        0.0
+                    )
+                end
             else
                 self:_drawMeshTransform(
                     self.meshPeg,
@@ -1830,7 +1872,8 @@ function Renderer3D:renderScene(screenW, screenH, state)
         local function drawSinglePiece(gx, gy, gz, player, isCurrentRewindHead, overrideAlpha)
             local pSkin = (player == 1) and pieceSkinW or pieceSkinB
             local wx, wy, wz = self:gridToWorldXYZ(gx, gy, gz, pSkin)
-            if not overrideAlpha and not isRewound and state.activeDrop and state.activeDrop.x == gx and state.activeDrop.y == gy and state.activeDrop.z == gz then
+            local isDropping = (not overrideAlpha and not isRewound and state.activeDrop and state.activeDrop.x == gx and state.activeDrop.y == gy and state.activeDrop.z == gz)
+            if isDropping then
                 wy = state.activeDrop.currentY
             end
 
@@ -1844,6 +1887,8 @@ function Renderer3D:renderScene(screenW, screenH, state)
 
             local taperXZ = 1.0
             local scaleY = 1.0
+            local spinAngle = 0.0
+            local dockFlash = 0.0
             if pSkin.style == "pine" then
                 -- Ёлка: нижний ярус широкий, верхушка пушистым конусом закрывает штырь
                 taperXZ = 1.24 - (gy - 1) * 0.14
@@ -1861,7 +1906,8 @@ function Renderer3D:renderScene(screenW, screenH, state)
                 end
             elseif pSkin.style == "skyscraper_block" then
                 -- Бесшовный рост башни: стыки ровно на половине шага, а 1-й блок ложится прямо на крышу
-                local slotTop = self:pieceWorldY(gy, pSkin) + Renderer3D.SLOT_STEP_Y * 0.5
+                local targetWy = self:pieceWorldY(gy, pSkin)
+                local slotTop = targetWy + Renderer3D.SLOT_STEP_Y * 0.5
                 local slotBot
                 if gy == 1 then
                     local idxM = (gx - 1) * 4 + gz
@@ -1870,9 +1916,26 @@ function Renderer3D:renderScene(screenW, screenH, state)
                     slotBot = slotTop - Renderer3D.SLOT_STEP_Y
                 end
                 local blockH = math.max(0.39, slotTop - slotBot)
-                wy = (slotTop + slotBot) * 0.5
+                local finalWy = (slotTop + slotBot) * 0.5
+                wy = isDropping and (finalWy + (state.activeDrop.currentY - targetWy)) or finalWy
                 scaleY = blockH / 0.39
                 taperXZ = isManhattanBoard and 0.90 or 1.0
+                if isDropping then
+                    local dur = math.max(0.05, state.activeDrop.duration or 0.35)
+                    local el = math.max(0.0, state.activeDrop.elapsed or 0.0)
+                    local fallT = math.min(1.0, el / (dur * 0.45))
+                    local rem = 1.0 - fallT
+                    -- Плавное нанизывание по шпилю с доворотом на 90°, вытяжением в полёте и мягкой вспышкой стыковки
+                    spinAngle = (rem * rem) * (math.pi * 0.5)
+                    local dropSpan = math.max(0.1, (state.activeDrop.startY or Renderer3D.DROP_SPAWN_Y) - targetWy)
+                    local hFrac = math.max(0.0, (state.activeDrop.currentY - targetWy) / dropSpan)
+                    scaleY = scaleY * (1.0 + hFrac * 0.15)
+                    taperXZ = taperXZ * (1.0 - hFrac * 0.06)
+                    if fallT > 0.72 then
+                        dockFlash = math.sin(((el / dur) - 0.32) / 0.68 * math.pi)
+                        dockFlash = math.max(0.0, dockFlash)
+                    end
+                end
             elseif pSkin.taperByHeight then
                 taperXZ = 1.28 - (gy - 1) * 0.19
             end
@@ -1884,6 +1947,8 @@ function Renderer3D:renderScene(screenW, screenH, state)
                 emissive = { 0.45 * pulse + 0.15, 0.34 * pulse + 0.10, 0.05 }
             elseif isCurrentRewindHead then
                 emissive = { 0.18 * pulse, 0.18 * pulse, 0.08 * pulse }
+            elseif dockFlash > 0.01 then
+                emissive = { 0.28 * dockFlash, 0.24 * dockFlash, 0.12 * dockFlash }
             elseif overrideAlpha then
                 local gp = 0.82 + 0.18 * pulse
                 emissive = {
@@ -1893,12 +1958,13 @@ function Renderer3D:renderScene(screenW, screenH, state)
                 }
             end
 
+            local cSpin, sSpin = math.cos(spinAngle), math.sin(spinAngle)
             self:_drawMeshTransform(
                 pMesh,
                 { wx, wy, wz },
-                { scale * taperXZ, 0, 0 },
+                { scale * taperXZ * cSpin, 0, scale * taperXZ * sSpin },
                 { 0, scale * scaleY, 0 },
-                { 0, 0, scale * taperXZ },
+                { -scale * taperXZ * sSpin, 0, scale * taperXZ * cSpin },
                 baseCol,
                 emissive,
                 pSkin.specular,
@@ -2124,13 +2190,13 @@ function Renderer3D:renderScene(screenW, screenH, state)
         )
     end
 
-    -- 5b. Бесконечный ночной туман/облака Манхэттена (2 лёгких горизонтальных слоя — ноль просадок FPS и без границ)
+    -- 5b. Ночной туман/облака Манхэттена (окутывает башни снизу и мягко растворяется к небу, не перекрывая луну)
     if isManhattanBoard then
         love.graphics.setDepthMode("lequal", false)
         love.graphics.setBlendMode("alpha")
         self:_drawMeshTransform(
             self.meshBox,
-            { 0.0, -2.05, 0.0 },
+            { 0.0, -2.30, 0.0 },
             { 140.0, 0, 0 }, { 0, 0.01, 0 }, { 0, 0, 140.0 },
             { 0.18, 0.24, 0.38, 0.96 },
             { 0.01, 0.02, 0.04 },
@@ -2138,12 +2204,47 @@ function Renderer3D:renderScene(screenW, screenH, state)
         )
         self:_drawMeshTransform(
             self.meshBox,
-            { 0.0, -1.32, 0.0 },
+            { 0.0, -1.55, 0.0 },
             { 140.0, 0, 0 }, { 0, 0.01, 0 }, { 0, 0, 140.0 },
             { 0.20, 0.28, 0.44, 0.56 },
             { 0.01, 0.02, 0.04 },
             0.0, 0.0, 1.0, 18.0
         )
+        love.graphics.setDepthMode("lequal", true)
+    end
+
+    -- 5d. Медленное плавное непрерывное падение снега на снежном поле (snowy_winter)
+    if isSnowyBoard then
+        love.graphics.setDepthMode("lequal", false)
+        love.graphics.setBlendMode("alpha")
+        local snowT = love.timer.getTime()
+        local snowCount = 54
+        for i = 1, snowCount do
+            local s1 = ((i * 73.13) % 1.0)
+            local s2 = ((i * 41.79) % 1.0)
+            local s3 = ((i * 19.47) % 1.0)
+            local speed = 0.075 + s3 * 0.055
+            local phase = (snowT * speed + s1) % 1.0
+            local sy = 5.1 - phase * 5.45
+            local baseX = (s1 - 0.5) * 12.6
+            local baseZ = (s2 - 0.5) * 12.6
+            local swayA = snowT * (0.45 + s3 * 0.35) + i * 1.13
+            local sx = baseX + math.sin(swayA) * 0.42
+            local sz = baseZ + math.cos(swayA * 0.85) * 0.42
+            local edgeFade = math.min(phase / 0.14, (1.0 - phase) / 0.16, 1.0)
+            local alpha = math.max(0.0, math.min(1.0, edgeFade)) * (0.68 + 0.28 * s3)
+            if alpha > 0.01 then
+                local rad = 0.036 + s3 * 0.028
+                self:_drawMeshTransform(
+                    self.meshSphere,
+                    { sx, sy, sz },
+                    { rad, 0, 0 }, { 0, rad * 0.9, 0 }, { 0, 0, rad },
+                    { 0.95, 0.98, 1.00, alpha },
+                    { 0.48, 0.60, 0.82 },
+                    0.15, 0.0, 1.0, 0.0
+                )
+            end
+        end
         love.graphics.setDepthMode("lequal", true)
     end
 
@@ -2244,6 +2345,7 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
 
     self:_send("u_time",       love.timer.getTime())
     self:_send("u_cloudTime",  love.timer.getTime())
+    self:_send("u_moonRayDir", { 0.0, 1.0, 0.0 })
     self:_send("u_camPos",     { camPos.x,   camPos.y,   camPos.z   })
     self:_send("u_eyePos",     { camPos.x,   camPos.y,   camPos.z   })
     self:_send("u_camHorizRight", { 1.0, 0.0 })
@@ -2477,13 +2579,15 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
                 isForest and 6.0 or ((isMetal or isCity) and 7.0 or (isCake and 9.0 or (isChern and 21.0 or 0.0)))
             )
             if isManh and not isSil then
-                local bp = 0.20 + 0.80 * math.pow(0.5 + 0.5 * math.sin(prevTime * 1.1 + pIdx * 0.4), 1.6)
+                local prevPhases = { 0.0, 2.3, 4.1, 1.2 }
+                local prevFreqs  = { 0.95, 1.32, 0.78, 1.15 }
+                local bp = math.pow(math.max(0.0, math.sin(prevTime * prevFreqs[pIdx] + prevPhases[pIdx])), 1.35)
                 drawPrev(
                     self.meshSphere,
                     { rx, 0.74, rz },
                     { 0.08, 0, 0 }, { 0, 0.08, 0 }, { 0, 0, 0.08 },
-                    { 1.0, 0.14, 0.10, 1.0 },
-                    { 1.2 * bp, 0.12 * bp, 0.08 * bp },
+                    { 0.22 + 0.78 * bp, 0.08 + 0.08 * bp, 0.06 + 0.05 * bp, 1.0 },
+                    { 1.35 * bp, 0.14 * bp, 0.09 * bp },
                     0.9, 0.0, 1.0, 12.0
                 )
             elseif isChern and not isSil then
@@ -2500,6 +2604,28 @@ function Renderer3D:renderShopPreview(cx, cy, cw, ch, screenW, screenH, previewT
                     )
                 end
             end
+        end
+        if isSnowy and not isSil then
+            love.graphics.setDepthMode("lequal", false)
+            love.graphics.setBlendMode("alpha")
+            for k = 1, 14 do
+                local s1 = ((k * 53.17) % 1.0)
+                local s2 = ((k * 29.61) % 1.0)
+                local sp = (prevTime * (0.12 + s2 * 0.07) + s1) % 1.0
+                local fx = (s1 - 0.5) * 2.8 + math.sin(prevTime * 0.7 + k) * 0.14
+                local fy = 1.65 - sp * 2.15
+                local fz = (s2 - 0.5) * 2.2
+                local ef = math.min(sp / 0.15, (1.0 - sp) / 0.18, 1.0)
+                drawPrev(
+                    self.meshSphere,
+                    { fx, fy, fz },
+                    { 0.042, 0, 0 }, { 0, 0.042, 0 }, { 0, 0, 0.042 },
+                    { 0.96, 0.99, 1.00, math.max(0.0, ef) * 0.85 },
+                    { 0.45, 0.58, 0.78 },
+                    0.15, 0.0, 1.0, 0.0
+                )
+            end
+            love.graphics.setDepthMode("lequal", true)
         end
     end
 
